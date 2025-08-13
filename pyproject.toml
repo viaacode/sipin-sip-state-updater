@@ -1,0 +1,27 @@
+[project]
+name = "sipin-sip-state-updater"
+version = "0.0.1"
+description = "Update the state of the ingest of a SIP package"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "viaa-chassis",
+    "pulsar-client",
+    "psycopg",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+    "pytest-cov",
+]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "--rootdir=./app/ -v"
+testpaths = ["tests"]

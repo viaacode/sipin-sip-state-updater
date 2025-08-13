@@ -1,0 +1,13 @@
+viaa:
+    logging:
+        level: DEBUG
+app:
+    pulsar:
+        host: !ENV ${PULSAR_HOST}
+        port: !ENV ${PULSAR_PORT}
+    db:
+        host: !ENV ${DB_HOST}
+        port: !ENV ${DB_PORT}
+        dbname: !ENV ${DB_NAME}
+        username: !ENV ${DB_USERNAME}
+        password: !ENV ${DB_PASSWORD}

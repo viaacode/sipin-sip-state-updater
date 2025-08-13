@@ -1,0 +1,10 @@
+# Changes here will be overwritten by Copier
+_commit: 11b9db1
+_src_path: https://github.com/viaacode/meemoo-python-service-template
+project_description: Update the state of the ingest of a SIP package
+project_name: sipin-sip-state-updater
+python_version: '3.12'
+uses_db: true
+uses_mediahaven: false
+uses_pulsar: true
+uses_s3: false
