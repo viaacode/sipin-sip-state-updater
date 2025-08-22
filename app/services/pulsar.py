@@ -1,4 +1,4 @@
-from pulsar import Client, InitialPosition
+from pulsar import Client
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
@@ -39,7 +39,6 @@ class PulsarClient:
         self.consumer = self.client.subscribe(
             CONSUMER_TOPICS,
             APP_NAME,
-            initial_position=InitialPosition.Earliest,
         )
         self.log.info(f"Started consuming topics: {CONSUMER_TOPICS}")
 
