@@ -1,18 +1,3 @@
-def remoteInt = [:]
-remoteInt.name = 'sipin-int'
-remoteInt.host = 'do-int-sip-01.do.viaa.be'
-remoteInt.allowAnyHosts = true
-
-def remoteQas = [:]
-remoteQas.name = 'sipin-qas'
-remoteQas.host = 'do-qas-sip-01.do.viaa.be'
-remoteQas.allowAnyHosts = true
-
-def remotePrd = [:]
-remotePrd.name = 'sipin-prd'
-remotePrd.host = 'do-prd-sip-01.do.viaa.be'
-remotePrd.allowAnyHosts = true
-
 pipeline {
     agent {
         kubernetes {
@@ -106,13 +91,6 @@ pipeline {
                 container('oc') {
                     tagNewImage('int')
                 }
-                withCredentials([usernamePassword(credentialsId: 'sipin_ssh', usernameVariable: 'SSH_USER', passwordVariable: 'SSH_PASSWORD')]) {
-                    script {
-                        remoteInt.password = SSH_PASSWORD
-                        remoteInt.user = SSH_USER
-                    }
-                    sshCommand remote: remoteInt, command: "cd /opt/sipin/ && ./deploy_single.sh $APP_NAME"
-                }
             }
             post {
                 always {
@@ -132,13 +110,6 @@ pipeline {
                 container('oc') {
                     tagNewImage('qas')
                 }
-                withCredentials([usernamePassword(credentialsId: 'sipin_ssh', usernameVariable: 'SSH_USER', passwordVariable: 'SSH_PASSWORD')]) {
-                    script {
-                        remoteQas.password = SSH_PASSWORD
-                        remoteQas.user = SSH_USER
-                    }
-                    sshCommand remote: remoteQas, command: "cd /opt/sipin/ && ./deploy_single.sh $APP_NAME"
-                }
             }
             post {
                 always {
@@ -153,13 +124,6 @@ pipeline {
             steps {
                 container('oc') {
                     tagNewImage('prd')
-                }
-                withCredentials([usernamePassword(credentialsId: 'sipin_ssh', usernameVariable: 'SSH_USER', passwordVariable: 'SSH_PASSWORD')]) {
-                    script {
-                        remotePrd.password = SSH_PASSWORD
-                        remotePrd.user = SSH_USER
-                    }
-                    sshCommand remote: remotePrd, command: "cd /opt/sipin/ && ./deploy_single.sh $APP_NAME"
                 }
             }
             post {
@@ -222,5 +186,7 @@ void tagNewImage(String environment) {
     sh """#!/bin/bash
     oc project $OC_PROJECT
     oc tag $APP_NAME:$GIT_SHORT_COMMIT $APP_NAME:${environment}
+    # Check the status of the rollout
+    oc rollout status deployment/$APP_NAME-${environment} --watch=true --timeout=10m
     """
 }
