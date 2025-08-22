@@ -5,9 +5,12 @@ description = "Update the state of the ingest of a SIP package"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "viaa-chassis",
-    "pulsar-client",
-    "psycopg",
+    "viaa-chassis==0.2.1",
+    "pulsar-client>=3.8.0,<4.0.0",
+    "psycopg>=3.2.9,<4.0.0",
+    "psycopg-pool>=3.2.6,<4.0.0",
+    "meemoo-cloudevents==0.1.0-rc.3",
+
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
