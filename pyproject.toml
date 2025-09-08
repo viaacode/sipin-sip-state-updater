@@ -9,7 +9,7 @@ dependencies = [
     "pulsar-client>=3.8.0,<4.0.0",
     "psycopg>=3.2.9,<4.0.0",
     "psycopg-pool>=3.2.6,<4.0.0",
-    "meemoo-cloudevents==0.1.0-rc.3",
+    "meemoo-cloudevents==0.1.0-rc.4",
 
 ]
 classifiers = [
