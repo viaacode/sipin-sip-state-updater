@@ -12,3 +12,9 @@ app:
         username: !ENV ${DB_USERNAME}
         password: !ENV ${DB_PASSWORD}
         table: !ENV ${DB_TABLE}
+    mediahaven:
+        id: !ENV ${MEDIAHAVEN_CLIENT_ID}
+        secret: !ENV ${MEDIAHAVEN_CLIENT_SECRET}
+        username: !ENV ${MEDIAHAVEN_USERNAME}
+        password: !ENV ${MEDIAHAVEN_PASSWORD}
+        url: !ENV ${MEDIAHAVEN_URL}

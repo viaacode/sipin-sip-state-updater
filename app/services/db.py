@@ -8,6 +8,9 @@ from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
 
+POLLER_EVENT_TYPE = "mediahaven.sip.archived"
+
+
 class SipStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     SUCCESS = "success"
@@ -20,9 +23,30 @@ class DbClient:
         self.log = logging.get_logger(__name__, config=config_parser)
         self.db_config: dict = config_parser.app_cfg["db"]
         self.pool = ConnectionPool(
-            f"host={self.db_config['host']} port={self.db_config['port']} dbname={self.db_config['dbname']} user={self.db_config['username']} password={self.db_config['password']}"
+            f"host={self.db_config['host']} port={self.db_config['port']} dbname={self.db_config['dbname']} user={self.db_config['username']} password={self.db_config['password']}",
+            min_size=4,  # default: 4
         )
         self.table = self.db_config["table"]
+
+    def select_pids_in_progress(
+        self,
+    ) -> list[str]:
+        """
+        Query the sipin table and select all rows where the PID is
+        set and the status is `in progress'.
+        """
+        try:
+            with self.pool.connection() as conn:
+                with conn.cursor() as cur:
+                    try:
+                        cur.execute(
+                            f"SELECT DISTINCT pid FROM public.{self.table} WHERE status = 'in_progress' AND pid != ''"
+                        )
+                    except Exception:
+                        pass
+                    return [x[0] for x in cur.fetchall()]
+        except Exception:
+            return []
 
     def update_sip_ingest_failed(
         self,
@@ -83,6 +107,31 @@ class DbClient:
                 conn.commit()
                 row_count = cur.rowcount
         return row_count
+
+    def update_sip_mam_success(
+        self,
+        pid: str,
+        event_timestamp,
+    ) -> int:
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE public.{self.table} SET status='success', last_event_type=%s, last_event_occurred_at=%s WHERE pid=%s;",
+                    (
+                        POLLER_EVENT_TYPE,
+                        event_timestamp,
+                        pid,
+                    ),
+                )
+                conn.commit()
+                row_count = cur.rowcount
+        return row_count
+
+    def update_sip_mam_failure(
+        self,
+        pid: str,
+    ) -> int:
+        pass  # TODO
 
     def close(self):
         """Close the connection (pool)"""
