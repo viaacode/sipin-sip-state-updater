@@ -97,7 +97,7 @@ class EventListener:
         self.log.debug(f"Start handling of event with id: {event.id}.")
 
         # Check if valid
-        if not self._is_event_failed(event):
+        if not self._is_event_successful(event):
             count = self.db_client.update_sip_ingest_failed(
                 event.correlation_id,
                 event.type,
@@ -125,7 +125,7 @@ class EventListener:
             f"Number of rows updated: {count} with correlation ID: {event.correlation_id}"
         )
 
-    def _is_event_failed(self, event: Event) -> bool:
+    def _is_event_successful(self, event: Event) -> bool:
         """Check if the event is successful."""
 
         if not event.has_successful_outcome():
