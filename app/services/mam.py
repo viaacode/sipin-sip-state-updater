@@ -130,10 +130,16 @@ class MamPoller:
 
     @staticmethod
     def _is_sip_failed(record: MamRecord):
-        return False  # TODO
+        try:
+            return (
+                record.Internal.ArchiveStatus == "failed"
+                or record.Administrative.RecordStatus == "Rejected"
+            )
+        except Exception:
+            return False
 
     @staticmethod
-    def _sip_record_to_pid(record: MamRecord):
+    def _sip_record_to_pid(record: MamRecord) -> str:
         filename = record.Descriptive.OriginalFilename
         return filename.removesuffix(".zip")
 
@@ -152,6 +158,30 @@ class MamPoller:
         else:
             return
 
+        # MediaHaven status are in flux.  ArchiveStatus seems to be a
+        # legacy field.  What we call "archived" seems to loosely
+        # correspond to MediaHaven's "published", with the caveat that
+        # MediaHaven items are auto-published, which seems fragile to
+        # depend upon.  MediaHaven has an archived state, which is a
+        # final black hole state (removed from view; admin-only
+        # access) without a meemoo analogue.
+        #
+        # v25.1.152
+        # ---------
+        # ArchiveStatus
+        #   This is an enum (on_ingest_tape, in_progress, failed,
+        #   on_disk, on_tape, completed).
+        #
+        #   success: completed
+        #   failure: failed
+        #
+        # RecordStatus:
+        #   Records go through 3 phases (Concept, Published, Archive);
+        #   their initial status is New/Draft.Valid
+        #
+        #   success: Published
+        #   failure: Draft.Invalid, Rejected, RejectedForCorrection,
+        #            ApprovedForDestruction, Destructed, Archived
         for r in records:
             if self._is_sip_archived(r):
                 pid = self._sip_record_to_pid(r)
