@@ -151,13 +151,15 @@ class DbClient:
                 cur.execute(
                     query=sql.SQL(
                         """UPDATE {}
-                    SET status=%(success)s,
-                        last_event_type=%(event_type)s,
-                        last_event_occurred_at=%(event_timestamp)s
-                    WHERE pid=%(pid)s;"""
+                        SET status=%(success)s,
+                            last_event_type=%(event_type)s,
+                            last_event_occurred_at=%(event_timestamp)s
+                        WHERE pid=%(pid)s
+                          AND status=%(in_progress);"""
                     ).format(sql.Identifier(self.schema, self.table)),
                     params={
                         "success": SipStatus.SUCCESS,
+                        "in_progress": SipStatus.IN_PROGRESS,
                         "event_type": POLLER_EVENT_TYPE,
                         "event_timestamp": event_timestamp,
                         "pid": pid,
