@@ -93,7 +93,7 @@ class MamPoller:
         n: int = cast(int, page.total_nr_of_results)
         records: list[MamRecord]
         if n > 0:
-            records = [r for r in page.as_generator()]
+            records = list(page.as_generator())
         else:
             records = []
         return records
