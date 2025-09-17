@@ -223,5 +223,16 @@ class MediaHavenQuery:
             self._clauses.append(f'OriginalFilename:"{p}.zip"')
         return self
 
+    def get_clauses(self) -> list[str]:
+        return self._clauses
+
     def build(self) -> str:
-        return "+(Administrative.DeleteStatus:*)" + "+(" + " ".join(self._clauses) + ")"
+        if not (clauses := self.get_clauses()):
+            ValueError("No clauses to build MediaHaven query with")
+        return (
+            "+(Administrative.DeleteStatus:*)"
+            + "+(Internal.IsInIngestSpace:*)"
+            + "+("
+            + " ".join(clauses)
+            + ")"
+        )
