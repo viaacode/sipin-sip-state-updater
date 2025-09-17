@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 
 # Third-party
+from psycopg import sql
 from psycopg_pool import ConnectionPool
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
@@ -23,9 +24,10 @@ class DbClient:
         self.log = logging.get_logger(__name__, config=config_parser)
         self.db_config: dict = config_parser.app_cfg["db"]
         self.pool = ConnectionPool(
-            f"host={self.db_config['host']} port={self.db_config['port']} dbname={self.db_config['dbname']} user={self.db_config['username']} password={self.db_config['password']}",
+            f"host={self.db_config['host']} port={self.db_config['port']} dbname={self.db_config['dbname']} user={self.db_config['username']} password={self.db_config['password']}",  # noqa: E501
             min_size=4,  # default: 4
         )
+        self.schema = "public"
         self.table = self.db_config["table"]
 
     def select_pids_in_progress(
@@ -40,7 +42,11 @@ class DbClient:
                 with conn.cursor() as cur:
                     try:
                         cur.execute(
-                            f"SELECT DISTINCT pid FROM public.{self.table} WHERE status = 'in_progress' AND pid != ''"
+                            query=sql.SQL(
+                                """SELECT DISTINCT pid FROM {}
+                                WHERE status = %(in_progress)s AND pid IS NOT NULL;"""
+                            ).format(sql.Identifier(self.schema, self.table)),
+                            params={"in_progress": SipStatus.IN_PROGRESS},
                         )
                     except Exception:
                         pass
@@ -58,15 +64,22 @@ class DbClient:
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"UPDATE public.{self.table} SET last_event_type=%s, last_event_occurred_at=%s, status=%s, failure_message=%s WHERE correlation_id=%s and last_event_occurred_at<%s;",
-                    (
-                        event_type,
-                        event_timestamp,
-                        SipStatus.FAILURE,
-                        failure_message,
-                        correlation_id,
-                        event_timestamp,
-                    ),
+                    query=sql.SQL(
+                        """UPDATE {}
+                        SET last_event_type=%(event_type)s,
+                            last_event_occurred_at=%(event_timestamp)s,
+                            status=%(failure)s,
+                            failure_message=%(failure_message)s
+                        WHERE correlation_id=%(correlation_id)s
+                          AND last_event_occurred_at<%(event_timestamp)s;"""
+                    ).format(sql.Identifier(self.schema, self.table)),
+                    params={
+                        "event_type": event_type,
+                        "event_timestamp": event_timestamp,
+                        "failure": SipStatus.FAILURE,
+                        "failure_message": failure_message,
+                        "correlation_id": correlation_id,
+                    },
                 )
                 conn.commit()
                 row_count = cur.rowcount
@@ -81,13 +94,18 @@ class DbClient:
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"UPDATE public.{self.table} SET last_event_type=%s, last_event_occurred_at=%s WHERE correlation_id=%s and last_event_occurred_at<%s;",
-                    (
-                        event_type,
-                        event_timestamp,
-                        correlation_id,
-                        event_timestamp,
-                    ),
+                    query=sql.SQL(
+                        """UPDATE {}
+                        SET last_event_type=%(event_type)s,
+                            last_event_occurred_at=%(event_timestamp)s
+                        WHERE correlation_id=%(correlation_id)s
+                          AND last_event_occurred_at<%(event_timestamp)s;"""
+                    ).format(sql.Identifier(self.schema, self.table)),
+                    params={
+                        "event_type": event_type,
+                        "event_timestamp": event_timestamp,
+                        "correlation_id": correlation_id,
+                    },
                 )
                 conn.commit()
                 row_count = cur.rowcount
@@ -101,8 +119,15 @@ class DbClient:
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"UPDATE public.{self.table} SET pid=%s WHERE correlation_id=%s AND pid IS NULL;",
-                    (pid, correlation_id),
+                    query=sql.SQL(
+                        """UPDATE {}
+                        SET pid=%(pid)s
+                        WHERE correlation_id=%(correlation_id)s AND pid IS NULL;"""
+                    ).format(sql.Identifier(self.schema, self.table)),
+                    params={
+                        "pid": pid,
+                        "correlation_id": correlation_id,
+                    },
                 )
                 conn.commit()
                 row_count = cur.rowcount
@@ -116,12 +141,19 @@ class DbClient:
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"UPDATE public.{self.table} SET status='success', last_event_type=%s, last_event_occurred_at=%s WHERE pid=%s;",
-                    (
-                        POLLER_EVENT_TYPE,
-                        event_timestamp,
-                        pid,
-                    ),
+                    query=sql.SQL(
+                        """UPDATE {}
+                    SET status=%(success)s,
+                        last_event_type=%(event_type)s,
+                        last_event_occurred_at=%(event_timestamp)s
+                    WHERE pid=%(pid)s;"""
+                    ).format(sql.Identifier(self.schema, self.table)),
+                    params={
+                        "success": SipStatus.SUCCESS,
+                        "event_type": POLLER_EVENT_TYPE,
+                        "event_timestamp": event_timestamp,
+                        "pid": pid,
+                    },
                 )
                 conn.commit()
                 row_count = cur.rowcount
