@@ -66,7 +66,8 @@ class UpdaterService:
 
 
 class EventListener:
-    """EventListener is responsible for listening to Pulsar events and processing them."""
+    """EventListener is responsible for listening to Pulsar events and
+    processing them."""
 
     def __init__(self, log, db_client):
         self.db_client = db_client
@@ -108,7 +109,7 @@ class EventListener:
                 f"Ingest has failed: {event.correlation_id} with type: {event.type}"
             )
             self.log.debug(
-                f"Number of rows updated: {count} with correlation ID: {event.correlation_id}"
+                f"Number of rows updated: {count} with correlation ID: {event.correlation_id}"  # noqa: E501
             )
             return
 
@@ -122,7 +123,7 @@ class EventListener:
             event.correlation_id, event.type, event.time
         )
         self.log.debug(
-            f"Number of rows updated: {count} with correlation ID: {event.correlation_id}"
+            f"Number of rows updated: {count} with correlation ID: {event.correlation_id}"  # noqa: E501
         )
 
     def _is_event_successful(self, event: Event) -> bool:

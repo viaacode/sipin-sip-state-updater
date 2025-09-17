@@ -143,13 +143,48 @@ class MamPoller:
         filename = record.Descriptive.OriginalFilename
         return filename.removesuffix(".zip")
 
-    @staticmethod
-    def _get_archived_date(record: MamRecord) -> datetime:
+    def _get_archived_date(self, record: MamRecord) -> datetime:
         try:
             date = record.Administrative.ArchivedDate
             return datetime.fromisoformat(date)
         except Exception:
             return datetime.now()
+
+    def _get_rejection_date(self, record: MamRecord) -> datetime:
+        try:
+            date = record.Administrative.RejectionDate
+            return datetime.fromisoformat(date)
+        except Exception as e:
+            self.log.error(f"_get_rejection_date error: {e}")
+            return datetime.now()
+
+    @staticmethod
+    def _get_failure_message(record: MamRecord) -> Optional[str]:
+        try:
+            rejections = record.Administrative.RecordRejections.Rejection
+            message = "\n".join([r.Motivation for r in rejections])
+            return message
+        except Exception:
+            return None
+
+    def _check_record_status(self, record: MamRecord) -> None:
+        if self._is_sip_archived(record):
+            pid = self._sip_record_to_pid(record)
+            timestamp = self._get_archived_date(record)
+            self.db_client.update_sip_mam_success(
+                pid=pid,
+                event_timestamp=timestamp,
+            )
+        elif self._is_sip_failed(record):
+            pid = self._sip_record_to_pid(record)
+            timestamp = self._get_rejection_date(record)
+            self.db_client.update_sip_mam_failure(
+                pid=pid,
+                event_timestamp=timestamp,
+                failure_message=self._get_failure_message(record),
+            )
+        else:
+            pass
 
     def update_mam_state(self):
         pids_in_progress = self.db_client.select_pids_in_progress()
@@ -183,18 +218,10 @@ class MamPoller:
         #   failure: Draft.Invalid, Rejected, RejectedForCorrection,
         #            ApprovedForDestruction, Destructed, Archived
         for r in records:
-            if self._is_sip_archived(r):
-                pid = self._sip_record_to_pid(r)
-                timestamp = self._get_archived_date(r)
-                self.db_client.update_sip_mam_success(
-                    pid=pid,
-                    event_timestamp=timestamp,
-                )
-            elif self._is_sip_failed(r):
-                pid = self._sip_record_to_pid(r)
-                self.db_client.update_sip_mam_failure(pid)
-            else:
-                pass
+            try:
+                self._check_record_status(r)
+            except Exception as e:
+                self.log.error(f"failed to check status of record: {e}")
 
     def poll(self):
         try:
