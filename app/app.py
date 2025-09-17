@@ -73,7 +73,7 @@ class EventListener:
         self.log = log
         self.pulsar_client = PulsarClient()
 
-    def pulsar_listener(self, consumer, message):
+    def pulsar_handler(self, consumer, message):
         """
         Handle an incoming Pulsar message.
         """
@@ -142,7 +142,7 @@ class EventListener:
         return True
 
     def start(self):
-        self.pulsar_client.subscribe(handler=self.pulsar_listener)
+        self.pulsar_client.subscribe(handler=self.pulsar_handler)
 
     def stop(self):
         self.pulsar_client.close()
