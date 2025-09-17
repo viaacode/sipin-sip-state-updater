@@ -22,13 +22,21 @@ class DbClient:
     def __init__(self):
         config_parser = ConfigParser()
         self.log = logging.get_logger(__name__, config=config_parser)
-        self.db_config: dict = config_parser.app_cfg["db"]
+        db_config: dict = config_parser.app_cfg["db"]
         self.pool = ConnectionPool(
-            f"host={self.db_config['host']} port={self.db_config['port']} dbname={self.db_config['dbname']} user={self.db_config['username']} password={self.db_config['password']}",  # noqa: E501
+            " ".join(
+                [
+                    f"host={db_config['host']}",
+                    f"port={db_config['port']}",
+                    f"dbname={db_config['dbname']}",
+                    f"user={db_config['username']}",
+                    f"password={db_config['password']}",
+                ]
+            ),
             min_size=4,  # default: 4
         )
         self.schema = "public"
-        self.table = self.db_config["table"]
+        self.table = db_config["table"]
 
     def select_pids_in_progress(
         self,
