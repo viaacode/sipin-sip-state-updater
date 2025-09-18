@@ -18,3 +18,4 @@ app:
         username: !ENV ${MEDIAHAVEN_USERNAME}
         password: !ENV ${MEDIAHAVEN_PASSWORD}
         url: !ENV ${MEDIAHAVEN_URL}
+        polling_interval_minutes: !ENV ${MEDIAHAVEN_POLLING_INTERVAL_MINUTES}

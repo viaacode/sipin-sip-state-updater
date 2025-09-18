@@ -31,22 +31,29 @@ class MediaHavenConfig:
     username: str
     password: str
     mh_base_url: str
+    polling_interval_minutes: int
 
     @classmethod
     def from_config_parser(cls, config: ConfigParser) -> Self:
         try:
-            try:
-                mediahaven = config.app_cfg["mediahaven"]
-            except ValueError:
-                raise ConfigError("no mediahaven section in app config ({CONFIG_FILE})")
+            mediahaven = config.app_cfg["mediahaven"]
+        except ValueError:
+            raise ConfigError("no mediahaven section in app config ({CONFIG_FILE})")
+        try:
             return cls(
                 client_id=mediahaven["id"],
                 client_secret=mediahaven["secret"],
                 username=mediahaven["username"],
                 password=mediahaven["password"],
                 mh_base_url=mediahaven["url"],
+                polling_interval_minutes=int(mediahaven["polling_interval_minutes"]),
+            )
+        except KeyError as e:
+            raise ConfigError(
+                f"missing key {e} in mediahaven section of app config ({CONFIG_FILE})"
             )
         except ValueError as e:
             raise ConfigError(
-                f"missing key `{e}' in mediahaven section of app config ({CONFIG_FILE})"
+                f"incorrect value in mediahaven section of app config ({CONFIG_FILE})"
+                + f": {e}"
             )

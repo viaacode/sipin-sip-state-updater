@@ -29,11 +29,13 @@ class MamPoller:
 
     def __init__(
         self,
+        config: MediaHavenConfig,
         db_client: DbClient,
         log: Logger,
         shutdown: Event,
         mam_client: MediaHaven,
     ) -> None:
+        self.config = config
         self.mam_client = mam_client
         self.db_client = db_client
         self.log = log
@@ -46,6 +48,7 @@ class MamPoller:
         **kwargs: Any,
     ) -> Self:
         return cls(
+            config=config,
             mam_client=cls.get_mediahaven_client(config),
             **kwargs,
         )
@@ -243,12 +246,20 @@ class MamPoller:
             except Exception as e:
                 self.log.error(f"failed to check status of record: {e}")
 
+    def _get_polling_interval(self) -> int:
+        """Return the polling interval, in seconds."""
+        try:
+            minutes = self.config.polling_interval_minutes
+        except Exception:
+            minutes = 60
+        return minutes * 60
+
     def poll(self) -> None:
         """On a fixed schedule, poll MediaHaven for the status of pending SIPs."""
         try:
             while not self.shutdown.is_set():
                 self.poll_mam_state()
-                self.shutdown.wait(60)  # TODO: set to 60 minutes, in seconds
+                self.shutdown.wait(self._get_polling_interval())
         except Exception:
             pass
 
