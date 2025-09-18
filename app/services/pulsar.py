@@ -1,8 +1,17 @@
+from __future__ import annotations
+
 from pulsar import Client, InitialPosition
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
 from .. import APP_NAME
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pulsar import Consumer, Message, Producer
+    from typing import Callable
+
 
 CONSUMER_TOPICS = [
     # 1.X
@@ -28,7 +37,7 @@ class PulsarClient:
     pattern.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the PulsarClient with configuration and a client."""
         config_parser = ConfigParser()
         self.log = logging.get_logger(__name__, config=config_parser)
@@ -36,9 +45,9 @@ class PulsarClient:
         self.client = Client(
             f'pulsar://{self.pulsar_config["host"]}:{self.pulsar_config["port"]}'
         )
-        self.producers = {}
+        self.producers: dict[str, Producer] = {}
 
-    def subscribe(self, handler):
+    def subscribe(self, handler: Callable[[Consumer[Message], Message], None]) -> None:
         """
         Start consuming topics with the callable `handler'
         responsible for handling the business logic.
@@ -54,7 +63,7 @@ class PulsarClient:
         )
         self.log.info(f"Started consuming topics: {CONSUMER_TOPICS}")
 
-    def close(self):
+    def close(self) -> None:
         """Close all producers and the consumer."""
         for producer in self.producers.values():
             producer.close()

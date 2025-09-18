@@ -18,8 +18,10 @@ from app.config import MediaHavenConfig
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from app import MamRecord
-    from typing import Self
+    from app import Logger, MamRecord
+    from app.services.db import DbClient
+    from threading import Event
+    from typing import Any, Optional, Self
 
 
 class MamPoller:
@@ -27,9 +29,9 @@ class MamPoller:
 
     def __init__(
         self,
-        db_client,
-        log,
-        shutdown,
+        db_client: DbClient,
+        log: Logger,
+        shutdown: Event,
         mam_client: MediaHaven,
     ) -> None:
         self.mam_client = mam_client
@@ -41,7 +43,7 @@ class MamPoller:
     def from_mediahaven_config(
         cls,
         config: MediaHavenConfig,
-        **kwargs,
+        **kwargs: Any,
     ) -> Self:
         return cls(
             mam_client=cls.get_mediahaven_client(config),
@@ -49,7 +51,11 @@ class MamPoller:
         )
 
     @classmethod
-    def from_config_parser(cls, config: ConfigParser, **kwargs) -> Self:
+    def from_config_parser(
+        cls,
+        config: ConfigParser,
+        **kwargs: Any,
+    ) -> Self:
         mediahaven_config = MediaHavenConfig.from_config_parser(config)
         return cls.from_mediahaven_config(config=mediahaven_config, **kwargs)
 
@@ -90,8 +96,8 @@ class MamPoller:
     def _get_records_from_page_object(
         page: MediaHavenPageObjectJSON,
     ) -> list[MamRecord]:
-        n: int = cast(int, page.total_nr_of_results)
-        records: list[MamRecord]
+        n = cast(int, page.total_nr_of_results)
+        records = []
         if n > 0:
             records = list(page.as_generator())
         else:
@@ -103,7 +109,7 @@ class MamPoller:
         pids: list[str],
     ) -> list[MamRecord]:
         """
-        Looks for MediaHaven records by PID.
+        Look for MediaHaven records by PID.
 
         Parameters:
             pids {list[str} -- a list of PIDs
@@ -119,9 +125,10 @@ class MamPoller:
         return self._get_records_from_page_object(result)
 
     @staticmethod
-    def _is_sip_archived(record: MamRecord):
+    def _is_sip_archived(record: MamRecord) -> bool:
+        """Define a correctly archived SIP based on MediaHaven record field values."""
         try:
-            return (
+            return bool(
                 record.Internal.ArchiveStatus == "completed"
                 and record.Administrative.RecordStatus == "Published"
             )
@@ -129,9 +136,10 @@ class MamPoller:
             return False
 
     @staticmethod
-    def _is_sip_failed(record: MamRecord):
+    def _is_sip_failed(record: MamRecord) -> bool:
+        """Define a failed SIP based on MediaHaven record field values."""
         try:
-            return (
+            return bool(
                 record.Internal.ArchiveStatus == "failed"
                 or record.Administrative.RecordStatus == "Rejected"
             )
@@ -140,10 +148,15 @@ class MamPoller:
 
     @staticmethod
     def _sip_record_to_pid(record: MamRecord) -> str:
-        filename = record.Descriptive.OriginalFilename
+        """
+        To match a MediaHaven record to our list of PIDs, we need to `extract' the PID
+        from the OriginalFilename from a MediaHaven record (with type `SIP').
+        """
+        filename = cast(str, record.Descriptive.OriginalFilename)
         return filename.removesuffix(".zip")
 
     def _get_archived_date(self, record: MamRecord) -> datetime:
+        """Get the archived date from a MediaHaven record."""
         try:
             date = record.Administrative.ArchivedDate
             return datetime.fromisoformat(date)
@@ -151,6 +164,7 @@ class MamPoller:
             return datetime.now()
 
     def _get_rejection_date(self, record: MamRecord) -> datetime:
+        """Get the rejection date from a MediaHaven record."""
         try:
             date = record.Administrative.RejectionDate
             return datetime.fromisoformat(date)
@@ -160,6 +174,7 @@ class MamPoller:
 
     @staticmethod
     def _get_failure_message(record: MamRecord) -> Optional[str]:
+        """Get a failure message from a MediaHaven record."""
         try:
             rejections = record.Administrative.RecordRejections.Rejection
             message = "\n".join([r.Motivation for r in rejections])
@@ -167,7 +182,11 @@ class MamPoller:
         except Exception:
             return None
 
-    def _check_record_status(self, record: MamRecord) -> None:
+    def _check_sip_status(self, record: MamRecord) -> None:
+        """
+        Check the status of a SIP in MediaHaven and store it in the SIP
+        deliveries database.
+        """
         if self._is_sip_archived(record):
             pid = self._sip_record_to_pid(record)
             timestamp = self._get_archived_date(record)
@@ -186,7 +205,8 @@ class MamPoller:
         else:
             pass
 
-    def update_mam_state(self):
+    def poll_mam_state(self) -> None:
+        """Get the pending PIDs and use them to poll MediaHaven."""
         pids_in_progress = self.db_client.select_pids_in_progress()
         if len(pids_in_progress) > 0:
             records = self.query_records_by_pids(pids_in_progress)
@@ -215,20 +235,21 @@ class MamPoller:
         #   their initial status is New/Draft.Valid
         #
         #   success: Published
-        #   failure: Draft.Invalid, Rejected, RejectedForCorrection,
-        #            ApprovedForDestruction, Destructed, Archived
+        #   failure: Draft.Invalid?, Rejected, RejectedForCorrection?,
+        #            ApprovedForDestruction?, Destructed?, Archived?
         for r in records:
             try:
-                self._check_record_status(r)
+                self._check_sip_status(r)
             except Exception as e:
                 self.log.error(f"failed to check status of record: {e}")
 
-    def poll(self):
+    def poll(self) -> None:
+        """On a fixed schedule, poll MediaHaven for the status of pending SIPs."""
         try:
             while not self.shutdown.is_set():
-                self.update_mam_state()
+                self.poll_mam_state()
                 self.shutdown.wait(60)  # TODO: set to 60 minutes, in seconds
-        except Exception as e:
+        except Exception:
             pass
 
 

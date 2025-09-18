@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from datetime import datetime
 import signal
 import threading
 import time
@@ -10,6 +13,13 @@ from app.services.db import DbClient
 from app.services.mam import MamPoller
 from app.services.pulsar import PulsarClient
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from app import Logger
+    from pulsar import Consumer, Message
+    from typing import Any
+
 
 class UpdaterService:
     """
@@ -18,17 +28,20 @@ class UpdaterService:
     MediaHaven.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initializes the UpdaterService with configuration, logging,
         database client and Pulsar client.
         """
         config_parser = ConfigParser()
         self.config = config_parser.app_cfg
-        self.db_client = DbClient()
         self.log = logging.get_logger(__name__, config=config_parser)
         self.shutdown = threading.Event()
-        self.event_listener = EventListener(self.log, self.db_client)
+        self.db_client = DbClient()
+        self.event_listener = EventListener(
+            log=self.log,
+            db_client=self.db_client,
+        )
         self.mam_poller = MamPoller.from_config_parser(
             config_parser,
             log=self.log,
@@ -36,10 +49,10 @@ class UpdaterService:
             shutdown=self.shutdown,
         )
 
-    def start(self):
+    def start(self) -> None:
         """
-        Starts listening for incoming messages from the Pulsar topic(s)
-        and polling MediaHaven.
+        Start listening for incoming messages about SIP ingest from the Pulsar
+        topic(s) and polling MediaHaven for the status of pending SIPs.
         """
         self.event_listener.start()
         t = threading.Thread(target=self.mam_poller.poll, daemon=True)
@@ -50,7 +63,6 @@ class UpdaterService:
 
         try:
             while not self.shutdown.is_set():
-                print("Waiting for shutdown...", flush=True)
                 self.shutdown.wait(1)
         finally:
             try:
@@ -59,22 +71,21 @@ class UpdaterService:
             except Exception:
                 pass
 
-    def stop(self, *_):
+    def stop(self, *_: Any) -> None:
         """Stop the service"""
         self.shutdown.set()
-        print("Shutting down...", flush=True)
 
 
 class EventListener:
     """EventListener is responsible for listening to Pulsar events and
     processing them."""
 
-    def __init__(self, log, db_client):
+    def __init__(self, log: Logger, db_client: DbClient) -> None:
         self.db_client = db_client
         self.log = log
         self.pulsar_client = PulsarClient()
 
-    def pulsar_handler(self, consumer, message):
+    def pulsar_handler(self, consumer: Consumer[Message], message: Message) -> None:
         """
         Handle an incoming Pulsar message.
         """
@@ -88,7 +99,7 @@ class EventListener:
             consumer.negative_acknowledge(message)
         time.sleep(10)
 
-    def handle_incoming_sipin_message(self, event: Event):
+    def handle_incoming_sipin_message(self, event: Event) -> None:
         """
         Handles an incoming Pulsar pre-MAM event.
 
@@ -100,10 +111,10 @@ class EventListener:
         # Check if valid
         if not self._is_event_successful(event):
             count = self.db_client.update_sip_ingest_failed(
-                event.correlation_id,
-                event.type,
-                event.time,
-                event.get_data().get("message"),
+                correlation_id=event.correlation_id,
+                event_type=event.type,
+                event_timestamp=cast(datetime, event.time),
+                failure_message=event.get_data().get("message"),
             )
             self.log.info(
                 f"Ingest has failed: {event.correlation_id} with type: {event.type}"
@@ -116,11 +127,16 @@ class EventListener:
         #  Valid
         pid = event.get_data().get("pid")
         if pid:
-            self.db_client.update_sip_ingest_pid(event.correlation_id, pid)
+            self.db_client.update_sip_ingest_pid(
+                correlation_id=event.correlation_id,
+                pid=pid,
+            )
             self.log.info(f"Update PID for: {event.correlation_id} with PID: {pid}.")
 
         count = self.db_client.update_sip_ingest(
-            event.correlation_id, event.type, event.time
+            correlation_id=event.correlation_id,
+            event_type=event.type,
+            event_timestamp=cast(datetime, event.time),
         )
         self.log.debug(
             f"Number of rows updated: {count} with correlation ID: {event.correlation_id}"  # noqa: E501
@@ -136,14 +152,14 @@ class EventListener:
         if data_outcome and data_outcome == EventOutcome.FAIL:
             return False
 
-        data_is_valid: bool = event.get_data().get("is_valid")
+        data_is_valid = cast(bool, event.get_data().get("is_valid"))
         if data_is_valid is False:
             return False
 
         return True
 
-    def start(self):
+    def start(self) -> None:
         self.pulsar_client.subscribe(handler=self.pulsar_handler)
 
-    def stop(self):
+    def stop(self) -> None:
         self.pulsar_client.close()

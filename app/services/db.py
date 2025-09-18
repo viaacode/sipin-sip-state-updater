@@ -22,10 +22,15 @@ class SipStatus(StrEnum):
 
 
 class DbClient:
-    def __init__(self):
+    """
+    Query and update the state database.  This client is shared between threads
+    (the Pulsar message handler and the MediaHaven poller).
+    """
+
+    def __init__(self) -> None:
         config_parser = ConfigParser()
         self.log = logging.get_logger(__name__, config=config_parser)
-        db_config: dict = config_parser.app_cfg["db"]
+        db_config: dict[str, str] = config_parser.app_cfg["db"]
         self.pool = ConnectionPool(
             " ".join(
                 [
@@ -72,6 +77,7 @@ class DbClient:
         event_timestamp: datetime,
         failure_message: Optional[str],
     ) -> int:
+        """Mark a record in the state database as failed during SIP ingest."""
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -106,6 +112,7 @@ class DbClient:
         event_type: str,
         event_timestamp: datetime,
     ) -> int:
+        """Record a sipin event in the state database."""
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -131,6 +138,7 @@ class DbClient:
         correlation_id: str,
         pid: str,
     ) -> int:
+        """Update a record in the state database with its PID."""
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -151,8 +159,9 @@ class DbClient:
     def update_sip_mam_success(
         self,
         pid: str,
-        event_timestamp,
+        event_timestamp: datetime,
     ) -> int:
+        """Mark a SIP as correctly archived in MediaHaven in the state database."""
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -179,9 +188,10 @@ class DbClient:
     def update_sip_mam_failure(
         self,
         pid: str,
-        event_timestamp,
+        event_timestamp: datetime,
         failure_message: Optional[str],
     ) -> int:
+        """Mark a SIP as failed during MediaHaven ingest in the state database."""
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -211,6 +221,6 @@ class DbClient:
                 row_count = cur.rowcount
         return row_count
 
-    def close(self):
+    def close(self) -> None:
         """Close the connection (pool)"""
         self.pool.close()
