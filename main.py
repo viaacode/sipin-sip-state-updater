@@ -1,4 +1,8 @@
-from app.app import EventListener
+from app.app import UpdaterService
 
 if __name__ == "__main__":
-    EventListener().start_listening()
+    svc = UpdaterService()
+    try:
+        svc.start()
+    finally:
+        svc.stop()

@@ -1,8 +1,17 @@
-from pulsar import Client
+from __future__ import annotations
+
+from pulsar import Client, InitialPosition
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
 from .. import APP_NAME
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pulsar import Consumer, Message, Producer
+    from typing import Callable
+
 
 CONSUMER_TOPICS = [
     # 1.X
@@ -24,49 +33,37 @@ CONSUMER_TOPICS = [
 
 class PulsarClient:
     """
-    Abstraction for a Pulsar Client.
+    Abstraction for a Pulsar Client using the message listener
+    pattern.
     """
 
-    def __init__(self):
-        """Initialize the PulsarClient with configurations and a consumer."""
+    def __init__(self) -> None:
+        """Initialize the PulsarClient with configuration and a client."""
         config_parser = ConfigParser()
         self.log = logging.get_logger(__name__, config=config_parser)
         self.pulsar_config = config_parser.app_cfg["pulsar"]
-
         self.client = Client(
             f'pulsar://{self.pulsar_config["host"]}:{self.pulsar_config["port"]}'
         )
+        self.producers: dict[str, Producer] = {}
+
+    def subscribe(self, handler: Callable[[Consumer[Message], Message], None]) -> None:
+        """
+        Start consuming topics with the callable `handler'
+        responsible for handling the business logic.
+        """
+        if not callable(handler):
+            raise TypeError("subscribe expects a callable (handler)")
+
         self.consumer = self.client.subscribe(
-            CONSUMER_TOPICS,
-            APP_NAME,
+            topic=CONSUMER_TOPICS,
+            subscription_name=APP_NAME,
+            message_listener=handler,
+            initial_position=InitialPosition.Earliest,
         )
         self.log.info(f"Started consuming topics: {CONSUMER_TOPICS}")
 
-    def receive(self):
-        """Receive a message from the consumer.
-
-        Returns:
-            Message: The received message.
-        """
-        return self.consumer.receive()
-
-    def acknowledge(self, msg):
-        """Acknowledge a message on the consumer.
-
-        Args:
-            msg: The message to acknowledge.
-        """
-        self.consumer.acknowledge(msg)
-
-    def negative_acknowledge(self, msg):
-        """Send a negative acknowledgment (nack) for a message.
-
-        Args:
-            msg: The message to nack.
-        """
-        self.consumer.negative_acknowledge(msg)
-
-    def close(self):
+    def close(self) -> None:
         """Close all producers and the consumer."""
         for producer in self.producers.values():
             producer.close()
