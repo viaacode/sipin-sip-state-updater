@@ -211,9 +211,14 @@ class MamPoller:
     def poll_mam_state(self) -> None:
         """Get the pending PIDs and use them to poll MediaHaven."""
         pids_in_progress = self.db_client.select_pids_in_progress()
-        if len(pids_in_progress) > 0:
+        if (n := len(pids_in_progress)) > 0:
+            self.log.debug(f"[MH] polling for `{n}' PIDs in progress")
             records = self.query_records_by_pids(pids_in_progress)
         else:
+            self.log.debug(
+                "[MH] nothing to poll for; "
+                + f"checking back in {self.config.polling_interval_minutes}m"
+            )
             return
 
         # MediaHaven status are in flux.  ArchiveStatus seems to be a
