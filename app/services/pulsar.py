@@ -16,7 +16,7 @@ CONSUMER_TOPICS = [
     "public/sipin/mh-sip.transfer",
     # 2.X
     "public/sipin/sip-2.unzip",
-    "public/sipin/sip-2.validator",
+    "public/sipin/sip-2.validate",
     "public/sipin/sip-2.transform",
     "public/sipin/sip-2.mh-sip.create",
 ]
