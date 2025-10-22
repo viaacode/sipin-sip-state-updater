@@ -3,6 +3,7 @@ from __future__ import annotations
 
 # stdlib imports
 from datetime import datetime
+from itertools import islice
 
 # meemoo imports
 from mediahaven import MediaHaven
@@ -21,11 +22,11 @@ if TYPE_CHECKING:
     from app import Logger, MamRecord
     from app.services.db import DbClient
     from threading import Event
-    from typing import Any, Optional, Self
+    from typing import Any, Iterator, Optional, Self
 
 
 class MamPoller:
-    """MamPoller is responsible for polling MediaHaven."""
+    """MamPoller is responsible for polling MediaHaven for SIPs in progress."""
 
     def __init__(
         self,
@@ -34,12 +35,15 @@ class MamPoller:
         log: Logger,
         shutdown: Event,
         mam_client: MediaHaven,
+        polling_interval_hours: float
     ) -> None:
         self.config = config
         self.mam_client = mam_client
         self.db_client = db_client
         self.log = log
         self.shutdown = shutdown
+        self.polling_interval_hours = polling_interval_hours
+        self.pid_batch_size = 1
 
     @classmethod
     def from_mediahaven_config(
@@ -107,6 +111,9 @@ class MamPoller:
             records = []
         return records
 
+    def _get_name(self) -> str:
+        return type(self).__name__
+
     def query_records_by_pids(
         self,
         pids: list[str],
@@ -120,12 +127,32 @@ class MamPoller:
         Returns:
             records {list[MamRecord]}
         """
-        query = self._get_mediahaven_pids_query(pids)
-        result = self.mam_client.records.search(
-            accept_format=AcceptFormat.JSON,
-            q=query,
-        )
-        return self._get_records_from_page_object(result)
+        if not pids:
+            return []
+
+        records: list[MamRecord] = []
+        for batch in self._pid_batches(pids, self.pid_batch_size):
+            query = self._get_mediahaven_pids_query(batch)
+            result = self.mam_client.records.search(
+                accept_format=AcceptFormat.JSON,
+                q=query,
+            )
+            records.extend(self._get_records_from_page_object(result))
+
+        return records
+
+    @staticmethod
+    def _pid_batches(pids: list[str], size: int) -> Iterator[list[str]]:
+        """Yield successive PID batches."""
+        if size <= 0:
+            raise ValueError(f"PID batch size `{size}' must be >= 1")
+
+        pids_iterator = iter(pids)
+        while True:
+            chunk = list(islice(pids_iterator, size))
+            if not chunk:
+                break
+            yield chunk
 
     @staticmethod
     def _is_sip_archived(record: MamRecord) -> bool:
@@ -161,7 +188,7 @@ class MamPoller:
     def _get_archived_date(self, record: MamRecord) -> datetime:
         """Get the archived date from a MediaHaven record."""
         try:
-            date = record.Administrative.ArchivedDate
+            date = record.Administrative.ArchiveDate
             return datetime.fromisoformat(date)
         except Exception:
             return datetime.now()
@@ -172,7 +199,7 @@ class MamPoller:
             date = record.Administrative.RejectionDate
             return datetime.fromisoformat(date)
         except Exception as e:
-            self.log.error(f"_get_rejection_date error: {e}")
+            self.log.exception(f"_get_rejection_date error: {e}")
             return datetime.now()
 
     @staticmethod
@@ -193,6 +220,11 @@ class MamPoller:
         if self._is_sip_archived(record):
             pid = self._sip_record_to_pid(record)
             timestamp = self._get_archived_date(record)
+            self.log.debug(
+                f"SIP `{pid}' was successfully archived at {timestamp}",
+                pid=pid,
+                status="success",
+            )
             self.db_client.update_sip_mam_success(
                 pid=pid,
                 event_timestamp=timestamp,
@@ -200,24 +232,36 @@ class MamPoller:
         elif self._is_sip_failed(record):
             pid = self._sip_record_to_pid(record)
             timestamp = self._get_rejection_date(record)
+            self.log.info(
+                f"SIP `{pid}' failed to archive at {timestamp}",
+                pid=pid,
+                status="failure",
+            )
             self.db_client.update_sip_mam_failure(
                 pid=pid,
                 event_timestamp=timestamp,
                 failure_message=self._get_failure_message(record),
             )
         else:
+            self.log.debug(f"SIP neither failed nor archived")
             pass
 
+    def _get_pids_to_poll(self) -> list[str]:
+        self.log.debug(f"[{self._get_name()}] looking for PIDs in progress")
+        return self.db_client.select_sips_in_progress()
+
     def poll_mam_state(self) -> None:
-        """Get the pending PIDs and use them to poll MediaHaven."""
-        pids_in_progress = self.db_client.select_pids_in_progress()
-        if (n := len(pids_in_progress)) > 0:
-            self.log.debug(f"[MH] polling for `{n}' PIDs in progress")
-            records = self.query_records_by_pids(pids_in_progress)
+        """Poll MediaHaven by PID."""
+        pids_to_poll = self._get_pids_to_poll()
+        if (n := len(pids_to_poll)) > 0:
+            self.log.info(
+                f"[{self._get_name()}] polling for {n} PID(s) in progress: {pids_to_poll}",
+                pids=pids_to_poll,
+            )
+            records = self.query_records_by_pids(pids_to_poll)
         else:
             self.log.debug(
-                "[MH] nothing to poll for; "
-                + f"checking back in {self.config.polling_interval_minutes}m"
+                f"[{self._get_name()}] no PIDs to poll for; checking back in {self.polling_interval_hours}h"
             )
             return
 
@@ -249,24 +293,28 @@ class MamPoller:
             try:
                 self._check_sip_status(r)
             except Exception as e:
-                self.log.error(f"failed to check status of record: {e}")
+                self.log.exception(f"failed to check status of record: {e}")
 
-    def _get_polling_interval(self) -> int:
+    def _get_polling_interval_seconds(self) -> int:
         """Return the polling interval, in seconds."""
-        try:
-            minutes = self.config.polling_interval_minutes
-        except Exception:
-            minutes = 60
-        return minutes * 60
+        return int(self.polling_interval_hours * 60 * 60)
 
     def poll(self) -> None:
-        """On a fixed schedule, poll MediaHaven for the status of pending SIPs."""
+        """On a fixed schedule, poll MediaHaven for the status of SIPs."""
         try:
             while not self.shutdown.is_set():
                 self.poll_mam_state()
-                self.shutdown.wait(self._get_polling_interval())
-        except Exception:
-            pass
+                self.log.debug(f"[{self._get_name()}] done polling; checking back in {self.polling_interval_hours}h")
+                self.shutdown.wait(self._get_polling_interval_seconds())
+        except Exception as e:
+            self.log.exception(f"[{self._get_name()}] failure during polling: {e}")
+
+
+class MamFailuresPoller(MamPoller):
+    """MamFailuresPoller is responsible for polling MediaHaven for failed SIPs."""
+    def _get_pids_to_poll(self) -> list[str]:
+        self.log.debug(f"[{self._get_name()}] looking for recent failed SIPs")
+        return self.db_client.select_recent_failed_sips()
 
 
 class MediaHavenQuery:

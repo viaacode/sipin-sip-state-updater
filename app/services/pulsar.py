@@ -61,10 +61,15 @@ class PulsarClient:
             message_listener=handler,
             initial_position=InitialPosition.Earliest,
         )
-        self.log.info(f"Started consuming topics: {CONSUMER_TOPICS}")
+        self.log.info(
+            f"Started consuming topics: {CONSUMER_TOPICS}", topics=CONSUMER_TOPICS
+        )
 
     def close(self) -> None:
         """Close all producers and the consumer."""
-        for producer in self.producers.values():
-            producer.close()
-        self.consumer.close()
+        try:
+            for producer in self.producers.values():
+                producer.close()
+            self.consumer.close()
+        except Exception as e:
+            self.log.exception("Failure while closing pulsar connections: {e}")

@@ -31,7 +31,8 @@ class MediaHavenConfig:
     username: str
     password: str
     mh_base_url: str
-    polling_interval_minutes: int
+    polling_interval: float
+    polling_interval_failures: float
 
     @classmethod
     def from_config_parser(cls, config: ConfigParser) -> Self:
@@ -46,7 +47,8 @@ class MediaHavenConfig:
                 username=mediahaven["username"],
                 password=mediahaven["password"],
                 mh_base_url=mediahaven["url"],
-                polling_interval_minutes=int(mediahaven["polling_interval_minutes"]),
+                polling_interval=float(mediahaven["polling_interval"]),
+                polling_interval_failures=float(mediahaven["polling_interval_failures"]),
             )
         except KeyError as e:
             raise ConfigError(

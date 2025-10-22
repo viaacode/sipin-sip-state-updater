@@ -9,7 +9,7 @@ from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
 from app.services.db import DbClient
-from app.services.mam import MamPoller
+from app.services.mam import MamPoller, MamFailuresPoller
 from app.services.pulsar import PulsarClient
 
 from typing import TYPE_CHECKING, cast
@@ -41,11 +41,21 @@ class UpdaterService:
             log=self.log,
             db_client=self.db_client,
         )
+        # regularly poll in progress SIPs
         self.mam_poller = MamPoller.from_config_parser(
             config_parser,
             log=self.log,
             db_client=self.db_client,
             shutdown=self.shutdown,
+            polling_interval_hours=float(self.config["mediahaven"]["polling_interval"])
+        )
+        # poll failures
+        self.mam_failure_poller = MamFailuresPoller.from_config_parser(
+            config_parser,
+            log=self.log,
+            db_client=self.db_client,
+            shutdown=self.shutdown,
+            polling_interval_hours=float(self.config["mediahaven"]["polling_interval_failures"])
         )
 
     def start(self) -> None:
@@ -54,8 +64,10 @@ class UpdaterService:
         topic(s) and polling MediaHaven for the status of pending SIPs.
         """
         self.event_listener.start()
-        t = threading.Thread(target=self.mam_poller.poll, daemon=True)
-        t.start()
+        t1 = threading.Thread(target=self.mam_poller.poll, daemon=True)
+        t1.start()
+        t2 = threading.Thread(target=self.mam_failure_poller.poll, daemon=True)
+        t2.start()
 
         signal.signal(signal.SIGINT, self.stop)
         signal.signal(signal.SIGTERM, self.stop)
@@ -94,7 +106,7 @@ class EventListener:
             consumer.acknowledge(message)
         except Exception as e:
             # Catch and log any errors during message processing
-            self.log.error(f"Error: {e}")
+            self.log.exception(f"Error: {e}")
             consumer.negative_acknowledge(message)
 
     def handle_incoming_sipin_message(self, event: Event) -> None:
@@ -104,7 +116,7 @@ class EventListener:
         Args:
             event (Event): The incoming event to process.
         """
-        self.log.debug(f"Start handling of event with id: {event.id}.")
+        self.log.debug(f"Start handling of event with correlation ID: {event.correlation_id}.")
 
         # Check if valid
         if not self._is_event_successful(event):

@@ -1,5 +1,5 @@
 # Standard
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 
 # Third-party
@@ -13,6 +13,7 @@ from viaa.observability import logging
 DEFAULT_SIP_FAILURE_MESSAGE = "SIP ingest failed"
 DEFAULT_MAM_FAILURE_MESSAGE = "MediaHaven ingest failed"
 POLLER_EVENT_TYPE = "mediahaven.sip.archived"
+RECENCY_CUTOFF_WEEKS = 4
 
 
 class SipStatus(StrEnum):
@@ -46,7 +47,7 @@ class DbClient:
         self.schema = "public"
         self.table = db_config["table"]
 
-    def select_pids_in_progress(
+    def select_sips_in_progress(
         self,
     ) -> list[str]:
         """
@@ -64,11 +65,44 @@ class DbClient:
                             ).format(sql.Identifier(self.schema, self.table)),
                             params={"in_progress": SipStatus.IN_PROGRESS},
                         )
-                    except Exception:
-                        pass
-                    return [x[0] for x in cur.fetchall()]
+                        return [x[0] for x in cur.fetchall()]
+                    except Exception as e:
+                        self.log.exception(f"Failed to query for SIPs in progress: {e}")
         except Exception:
-            return []
+            self.log.exception(f"Failed to select SIPs in progress")
+        return []
+
+    def select_recent_failed_sips(
+        self,
+    ) -> list[str]:
+        """
+        Query the sipin table and select all rows where the status is
+        `failed' and the created_at timestamp is less than 4 weeks old.
+        """
+        cutoff = datetime.now() - timedelta(weeks=RECENCY_CUTOFF_WEEKS),
+        try:
+            with self.pool.connection() as conn:
+                with conn.cursor() as cur:
+                    try:
+                        cur.execute(
+                            query=sql.SQL(
+                                """SELECT DISTINCT pid FROM {}
+                                WHERE status = %(failure)s
+                                 AND pid != ''
+                                 AND pid IS NOT NULL
+                                 AND created_at > %(timestamp)s;"""
+                            ).format(sql.Identifier(self.schema, self.table)),
+                            params={
+                                "failure": SipStatus.FAILURE,
+                                "timestamp": cutoff,
+                            },
+                        )
+                        return [x[0] for x in cur.fetchall()]
+                    except Exception:
+                        self.log.exception(f"Failed to query for recent failed SIPs")
+        except Exception:
+            self.log.exception(f"Failed to select recent failed SIPs")
+        return []
 
     def update_sip_ingest_failed(
         self,
