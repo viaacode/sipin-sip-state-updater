@@ -1,6 +1,6 @@
 [project]
 name = "sipin-sip-state-updater"
-version = "0.0.1"
+version = "0.0.2"
 description = "Update the state of the ingest of a SIP package"
 readme = "README.md"
 requires-python = ">=3.12"

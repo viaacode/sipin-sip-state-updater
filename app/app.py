@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 import signal
 import threading
-import time
 
 from cloudevents.events import Event, EventOutcome, PulsarBinding
 from viaa.configuration import ConfigParser
@@ -97,7 +96,6 @@ class EventListener:
             # Catch and log any errors during message processing
             self.log.error(f"Error: {e}")
             consumer.negative_acknowledge(message)
-        time.sleep(10)
 
     def handle_incoming_sipin_message(self, event: Event) -> None:
         """
