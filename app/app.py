@@ -41,7 +41,7 @@ class UpdaterService:
             log=self.log,
             db_client=self.db_client,
         )
-        # regularly poll in progress SIPs
+        # poll in progress SIPs
         self.mam_poller = MamPoller.from_config_parser(
             config_parser,
             log=self.log,

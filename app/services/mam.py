@@ -12,6 +12,8 @@ from mediahaven.oauth2 import ROPCGrant
 from mediahaven.resources.base_resource import MediaHavenPageObjectJSON
 from viaa.configuration import ConfigParser
 
+import time
+
 # local imports
 from app.config import MediaHavenConfig
 
@@ -35,7 +37,7 @@ class MamPoller:
         log: Logger,
         shutdown: Event,
         mam_client: MediaHaven,
-        polling_interval_hours: float
+        polling_interval_hours: float,
     ) -> None:
         self.config = config
         self.mam_client = mam_client
@@ -97,7 +99,48 @@ class MamPoller:
         pids: list[str],
     ) -> str:
         """Get MediaHaven query by PIDs."""
-        return MediaHavenQuery().pids(pids).build()
+        if not pids or len(pids) == 0:
+            ValueError("No PIDs to build MediaHaven query with")
+        return (
+            "+(Administrative.DeleteStatus:*)"
+            + "+(Internal.IsInIngestSpace:*)"
+            + "+(Structural.Relations.ContainedBy:*)"
+            + "+("
+            + " ".join([f'Dynamic.PID:{p}' for p in pids])
+            + ")"
+        )
+
+    @staticmethod
+    def _get_mediahaven_ie_query(
+        pids: list[str],
+    ) -> str:
+        """Get MediaHaven query by PIDs."""
+        if not pids or len(pids) == 0:
+            ValueError("No PIDs to build MediaHaven query with")
+        return (
+            "+(Administrative.DeleteStatus:*)"
+            + "+(Internal.IsInIngestSpace:*)"
+            + "+(Structural.Relations.ContainedBy:*)"
+            + "+("
+            + " ".join([f'Dynamic.PID:{p}' for p in pids])
+            + ")"
+        )
+
+    @staticmethod
+    def _get_mediahaven_sip_query(
+        pids: list[str],
+    ) -> str:
+        """Get MediaHaven query by PIDs."""
+        if not pids or len(pids) == 0:
+            ValueError("No PIDs to build MediaHaven query with")
+        return (
+            "+(Administrative.DeleteStatus:*)"
+            + "+(Internal.IsInIngestSpace:*)"
+            + "+(Administrative.MainRecordType:Sip)"
+            + "+("
+            + " ".join([f'OriginalFilename:{p}.zip' for p in pids])
+            + ")"
+        )
 
     @staticmethod
     def _get_records_from_page_object(
@@ -141,6 +184,60 @@ class MamPoller:
 
         return records
 
+    def query_ie_records_by_pids(
+        self,
+        pids: list[str],
+    ) -> list[MamRecord]:
+        """
+        Look for MediaHaven records by PID.
+
+        Parameters:
+            pids {list[str} -- a list of PIDs
+
+        Returns:
+            records {list[MamRecord]}
+        """
+        if not pids:
+            return []
+
+        records: list[MamRecord] = []
+        for batch in self._pid_batches(pids, self.pid_batch_size):
+            query = self._get_mediahaven_ie_query(batch)
+            result = self.mam_client.records.search(
+                accept_format=AcceptFormat.JSON,
+                q=query,
+            )
+            records.extend(self._get_records_from_page_object(result))
+
+        return records
+
+    def query_sip_records_by_pids(
+        self,
+        pids: list[str],
+    ) -> list[MamRecord]:
+        """
+        Look for MediaHaven records by PID.
+
+        Parameters:
+            pids {list[str} -- a list of PIDs
+
+        Returns:
+            records {list[MamRecord]}
+        """
+        if not pids:
+            return []
+
+        records: list[MamRecord] = []
+        for batch in self._pid_batches(pids, self.pid_batch_size):
+            query = self._get_mediahaven_sip_query(batch)
+            result = self.mam_client.records.search(
+                accept_format=AcceptFormat.JSON,
+                q=query,
+            )
+            records.extend(self._get_records_from_page_object(result))
+
+        return records
+
     @staticmethod
     def _pid_batches(pids: list[str], size: int) -> Iterator[list[str]]:
         """Yield successive PID batches."""
@@ -160,7 +257,10 @@ class MamPoller:
         try:
             return bool(
                 record.Internal.ArchiveStatus == "completed"
-                and record.Administrative.RecordStatus == "Published"
+                and (
+                    record.Administrative.RecordStatus == "Published" or
+                    record.Administrative.RecordStatus == "Draft.Valid"
+                )
             )
         except Exception:
             return False
@@ -175,15 +275,6 @@ class MamPoller:
             )
         except Exception:
             return False
-
-    @staticmethod
-    def _sip_record_to_pid(record: MamRecord) -> str:
-        """
-        To match a MediaHaven record to our list of PIDs, we need to `extract' the PID
-        from the OriginalFilename from a MediaHaven record (with type `SIP').
-        """
-        filename = cast(str, record.Descriptive.OriginalFilename)
-        return filename.removesuffix(".zip")
 
     def _get_archived_date(self, record: MamRecord) -> datetime:
         """Get the archived date from a MediaHaven record."""
@@ -212,13 +303,12 @@ class MamPoller:
         except Exception:
             return None
 
-    def _check_sip_status(self, record: MamRecord) -> None:
+    def _check_sip_status(self, record: MamRecord, pid: str) -> None:
         """
         Check the status of a SIP in MediaHaven and store it in the SIP
         deliveries database.
         """
         if self._is_sip_archived(record):
-            pid = self._sip_record_to_pid(record)
             timestamp = self._get_archived_date(record)
             self.log.debug(
                 f"SIP `{pid}' was successfully archived at {timestamp}",
@@ -230,7 +320,6 @@ class MamPoller:
                 event_timestamp=timestamp,
             )
         elif self._is_sip_failed(record):
-            pid = self._sip_record_to_pid(record)
             timestamp = self._get_rejection_date(record)
             self.log.info(
                 f"SIP `{pid}' failed to archive at {timestamp}",
@@ -243,8 +332,7 @@ class MamPoller:
                 failure_message=self._get_failure_message(record),
             )
         else:
-            self.log.debug(f"SIP neither failed nor archived")
-            pass
+            self.log.debug(f"SIP `{pid}' neither failed nor archived")
 
     def _get_pids_to_poll(self) -> list[str]:
         self.log.debug(f"[{self._get_name()}] looking for PIDs in progress")
@@ -255,10 +343,9 @@ class MamPoller:
         pids_to_poll = self._get_pids_to_poll()
         if (n := len(pids_to_poll)) > 0:
             self.log.info(
-                f"[{self._get_name()}] polling for {n} PID(s) in progress: {pids_to_poll}",
+                f"[{self._get_name()}] polling {n} PID{"(s)" if n > 1 else ""}: {pids_to_poll}",
                 pids=pids_to_poll,
             )
-            records = self.query_records_by_pids(pids_to_poll)
         else:
             self.log.debug(
                 f"[{self._get_name()}] no PIDs to poll for; checking back in {self.polling_interval_hours}h"
@@ -289,15 +376,31 @@ class MamPoller:
         #   success: Published
         #   failure: Draft.Invalid?, Rejected, RejectedForCorrection?,
         #            ApprovedForDestruction?, Destructed?, Archived?
-        for r in records:
+        for pid in pids_to_poll:
             try:
-                self._check_sip_status(r)
+                ie_record = self.query_ie_records_by_pids([pid])
+                if ie_record:
+                    if (n := len(ie_record)) > 1:
+                        self.log.warning("found {n} records for PID `{pid}'")
+                    self.log.debug(f"found IE for PID `{pid}'")
+                    self._check_sip_status(ie_record[0], pid)
+                else:
+                    sip_record = self.query_sip_records_by_pids([pid])
+                    if sip_record:
+                        if (n := len(sip_record)) > 1:
+                            self.log.warning("found {n} records for PID `{pid}'")
+                        self.log.debug(f"found SIP for PID `{pid}'")
+                        self._check_sip_status(sip_record[0], pid)
+                    else:
+                        self.log.debug(f"didn't find record for PID `{pid}'")
             except Exception as e:
-                self.log.exception(f"failed to check status of record: {e}")
+                self.log.exception(f"failed to check status of PID `{pid}': {e}")
+            finally:
+                time.sleep(0.1)
 
-    def _get_polling_interval_seconds(self) -> int:
+    def _get_polling_interval_seconds(self) -> float:
         """Return the polling interval, in seconds."""
-        return int(self.polling_interval_hours * 60 * 60)
+        return self.polling_interval_hours * 60 * 60
 
     def poll(self) -> None:
         """On a fixed schedule, poll MediaHaven for the status of SIPs."""
@@ -315,36 +418,3 @@ class MamFailuresPoller(MamPoller):
     def _get_pids_to_poll(self) -> list[str]:
         self.log.debug(f"[{self._get_name()}] looking for recent failed SIPs")
         return self.db_client.select_recent_failed_sips()
-
-
-class MediaHavenQuery:
-    """
-    Simple MediaHaven query builder
-
-    Only supports generating a single combined query, combining all search
-    terms, and looking for results containing either one of them.
-    """
-
-    def __init__(self) -> None:
-        self._clauses: list[str] = []
-
-    def pids(self, pids: list[str]) -> Self:
-        if not pids:
-            raise ValueError("no pids to build MediaHaven query with")
-        for p in pids:
-            self._clauses.append(f'OriginalFilename:"{p}.zip"')
-        return self
-
-    def get_clauses(self) -> list[str]:
-        return self._clauses
-
-    def build(self) -> str:
-        if not (clauses := self.get_clauses()):
-            ValueError("No clauses to build MediaHaven query with")
-        return (
-            "+(Administrative.DeleteStatus:*)"
-            + "+(Internal.IsInIngestSpace:*)"
-            + "+("
-            + " ".join(clauses)
-            + ")"
-        )
