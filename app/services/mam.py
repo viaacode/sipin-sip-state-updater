@@ -184,13 +184,22 @@ class MamPoller:
     def _is_success(record: MamRecord, record_type: RecordType) -> bool:
         """Define a successfully archived SIP based on MediaHaven record field values."""
         try:
-            return bool(
-                record.Internal.ArchiveStatus == "completed"
-                and (
-                    record.Administrative.RecordStatus == "Published"
-                    or record.Administrative.RecordStatus == "Draft.Valid"
-                )
-            )
+            match record_type:
+                case RecordType.IE:
+                    return bool(
+                        record.Internal.ArchiveStatus == "completed"
+                        and (
+                            record.Administrative.RecordStatus == "Published"
+                            or record.Administrative.RecordStatus == "Draft.Valid"
+                        )
+                    )
+                case RecordType.SIP:
+                    return bool(
+                        record.Administrative.RecordStatus == "Accepted"
+                        or record.Administrative.RecordStatus == "Published"
+                    )
+                case _:
+                    return False
         except Exception:
             return False
 
@@ -200,6 +209,7 @@ class MamPoller:
         try:
             return bool(
                 record.Internal.ArchiveStatus == "failed"
+                or record.Administrative.RecordStatus == "Draft.Invalid"
                 or record.Administrative.RecordStatus == "Rejected"
             )
         except Exception:
