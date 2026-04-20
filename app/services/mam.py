@@ -220,7 +220,7 @@ class MamPoller:
         try:
             date = record.Administrative.ArchiveDate
             return datetime.fromisoformat(date)
-        except Exception:
+        except Exception as e:
             self.log.exception(f"Failed to get archived date: {e}")
             return datetime.now()
 
@@ -328,7 +328,9 @@ class MamPoller:
         return not self.shutdown.is_set()
 
     def _wait(self):
-        self.log.debug(f"[{self._get_name()}] done polling; checking back in {self.polling_interval_hours}h")
+        self.log.debug(
+            f"[{self._get_name()}] done polling; checking back in {self.polling_interval_hours}h"
+        )
         self.shutdown.wait(self._get_polling_interval_seconds())
 
     def poll(self) -> None:

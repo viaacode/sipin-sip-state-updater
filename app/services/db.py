@@ -67,8 +67,8 @@ class DbClient:
                         return [x[0] for x in cur.fetchall()]
                     except Exception as e:
                         self.log.exception(f"Failed to query for SIPs in progress: {e}")
-        except Exception:
-            self.log.exception(f"Failed to select SIPs in progress")
+        except Exception as e:
+            self.log.exception(f"Failed to select SIPs in progress: {e}")
         return []
 
     def select_recent_failed_sips(
@@ -104,11 +104,11 @@ class DbClient:
                         pids = [x[0] for x in cur.fetchall()]
                         self.log.debug(f"Found recent failed SIPs", pids=pids)
                         return pids
-                    except Exception:
+                    except Exception as e:
                         self.log.exception(
                             f"Failed to query for recent failed SIPs: {e}"
                         )
-        except Exception:
+        except Exception as e:
             self.log.exception(f"Failed to select recent failed SIPs: {e}")
         return []
 
