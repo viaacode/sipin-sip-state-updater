@@ -100,32 +100,30 @@ class MamPoller:
 
     @staticmethod
     def _get_mediahaven_ie_query(
-        pids: str | list[str],
+        pid: str,
     ) -> str:
-        """Get MediaHaven query by PIDs."""
-        if not pids:
-            raise ValueError("No PIDs to build MediaHaven query with")
-        pids = [pids] if isinstance(pids, str) else pids
+        """Get MediaHaven query by PID."""
+        if not pid:
+            raise ValueError("No PID to build MediaHaven query with")
         return (
             "+(Administrative.DeleteStatus:*)"
             "+(Internal.IsInIngestSpace:*)"
             "+(Structural.Relations.ContainedBy:*)"
-            f"+({" ".join([f'Dynamic.PID:{p}' for p in pids])})"
+            f"+(Dynamic.PID:{pid})"
         )
 
     @staticmethod
     def _get_mediahaven_sip_query(
-        pids: str | list[str],
+        pid: str,
     ) -> str:
-        """Get MediaHaven query by PIDs."""
-        if not pids:
-            raise ValueError("No PIDs to build MediaHaven query with")
-        pids = [pids] if isinstance(pids, str) else pids
+        """Get MediaHaven query by PID."""
+        if not pid:
+            raise ValueError("No PID to build MediaHaven query with")
         return (
             "+(Administrative.DeleteStatus:*)"
             "+(Internal.IsInIngestSpace:*)"
             "+(Administrative.MainRecordType:Sip)"
-            f"+({" ".join([f'OriginalFilename:{p}.zip' for p in pids])})"
+            f"+(OriginalFilename:{pid}.zip)"
         )
 
     def _get_records_from_page_object(
