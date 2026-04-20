@@ -1,4 +1,5 @@
 # Standard
+from __future__ import annotations
 from datetime import datetime, timedelta
 from enum import StrEnum, auto
 
@@ -8,6 +9,12 @@ from psycopg_pool import ConnectionPool
 from typing import Optional
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
+
+# Typing
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Iterator
 
 DEFAULT_SIP_FAILURE_MESSAGE = "SIP ingest failed"
 DEFAULT_MAM_FAILURE_MESSAGE = "MediaHaven ingest failed"
@@ -46,9 +53,28 @@ class DbClient:
         self.schema = "public"
         self.table = db_config["table"]
 
-    def select_sips_in_progress(
-        self,
-    ) -> list[str]:
+    def count_sips_in_progress(self) -> int:
+        """
+        Query the sipin table and count all rows where the PID is
+        set and the status is `in progress'.
+        """
+        try:
+            with self.pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        query=sql.SQL(
+                            """SELECT COUNT(DISTINCT pid) FROM {}
+                            WHERE status = %(in_progress)s AND pid IS NOT NULL;"""
+                        ).format(sql.Identifier(self.schema, self.table)),
+                        params={"in_progress": SipStatus.IN_PROGRESS},
+                    )
+                    row = cur.fetchone()
+                    return row[0] if row else 0
+        except Exception as e:
+            self.log.exception(f"Failed to count SIPs in progress: {e}")
+            return 0
+
+    def select_sips_in_progress(self) -> Iterator[str]:
         """
         Query the sipin table and select all rows where the PID is
         set and the status is `in progress'.
@@ -64,19 +90,44 @@ class DbClient:
                             ).format(sql.Identifier(self.schema, self.table)),
                             params={"in_progress": SipStatus.IN_PROGRESS},
                         )
-                        return [x[0] for x in cur.fetchall()]
+                        for row in cur:
+                            yield row[0]
                     except Exception as e:
                         self.log.exception(f"Failed to query for SIPs in progress: {e}")
         except Exception as e:
             self.log.exception(f"Failed to select SIPs in progress: {e}")
-        return []
 
     def _get_cutoff_timestamp(self) -> datetime:
         return datetime.now() - timedelta(weeks=self._cutoff)
 
-    def select_recent_failed_sips(
-        self,
-    ) -> list[str]:
+    def count_recent_failed_sips(self) -> int:
+        """
+        Query the sipin table and count all rows where the status is
+        `failed' and the created_at timestamp is less than 4 weeks old.
+        """
+        try:
+            with self.pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        query=sql.SQL("""SELECT COUNT(DISTINCT pid) FROM {}
+                            WHERE status = %(failure)s
+                             AND pid != ''
+                             AND pid IS NOT NULL
+                             AND created_at > %(timestamp)s;""").format(
+                            sql.Identifier(self.schema, self.table)
+                        ),
+                        params={
+                            "failure": SipStatus.FAILURE,
+                            "timestamp": self._get_cutoff_timestamp(),
+                        },
+                    )
+                    row = cur.fetchone()
+                    return row[0] if row else 0
+        except Exception as e:
+            self.log.exception(f"Failed to count recent failed SIPs: {e}")
+            return 0
+
+    def select_recent_failed_sips(self) -> Iterator[str]:
         """
         Query the sipin table and select all rows where the status is
         `failed' and the created_at timestamp is less than 4 weeks old.
@@ -84,34 +135,27 @@ class DbClient:
         try:
             with self.pool.connection() as conn:
                 with conn.cursor() as cur:
-                    try:
-                        cutoff_timestamp = self._get_cutoff_timestamp()
-                        self.log.info(
-                            f"[DB] Looking for failed SIPs created after {cutoff_timestamp}"
-                        )
-                        cur.execute(
-                            query=sql.SQL("""SELECT DISTINCT pid FROM {}
-                                WHERE status = %(failure)s
-                                 AND pid != ''
-                                 AND pid IS NOT NULL
-                                 AND created_at > %(timestamp)s;""").format(
-                                sql.Identifier(self.schema, self.table)
-                            ),
-                            params={
-                                "failure": SipStatus.FAILURE,
-                                "timestamp": cutoff_timestamp,
-                            },
-                        )
-                        pids = [x[0] for x in cur.fetchall()]
-                        self.log.debug(f"Found recent failed SIPs", pids=pids)
-                        return pids
-                    except Exception as e:
-                        self.log.exception(
-                            f"Failed to query for recent failed SIPs: {e}"
-                        )
+                    cutoff_timestamp = self._get_cutoff_timestamp()
+                    self.log.info(
+                        f"[DB] Looking for failed SIPs created after {cutoff_timestamp}"
+                    )
+                    cur.execute(
+                        query=sql.SQL("""SELECT DISTINCT pid FROM {}
+                            WHERE status = %(failure)s
+                             AND pid != ''
+                             AND pid IS NOT NULL
+                             AND created_at > %(timestamp)s;""").format(
+                            sql.Identifier(self.schema, self.table)
+                        ),
+                        params={
+                            "failure": SipStatus.FAILURE,
+                            "timestamp": cutoff_timestamp,
+                        },
+                    )
+                    for row in cur:
+                        yield row[0]
         except Exception as e:
             self.log.exception(f"Failed to select recent failed SIPs: {e}")
-        return []
 
     def update_sip_ingest_failed(
         self,

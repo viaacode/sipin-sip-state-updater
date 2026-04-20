@@ -276,7 +276,10 @@ class MamPoller:
         else:
             self.log.debug(f"SIP `{pid}' neither failed nor succeeded", pid=pid)
 
-    def _get_pids_to_poll(self) -> list[str]:
+    def _count_pids_to_poll(self) -> int:
+        return self.db_client.count_sips_in_progress()
+
+    def _pids_to_poll(self) -> Iterator[str]:
         self.log.debug(f"[{self._get_name()}] looking for SIPs in progress")
         return self.db_client.select_sips_in_progress()
 
@@ -305,13 +308,12 @@ class MamPoller:
 
     def _poll_mam(self) -> None:
         """Get list of PIDs to poll for and poll them."""
-        pids_to_poll = self._get_pids_to_poll()
-        if n := len(pids_to_poll):
+        count = self._count_pids_to_poll()
+        if count > 0:
             self.log.info(
-                f"[{self._get_name()}] polling {n} PID{"s" if n > 1 else ""}",
-                pids=pids_to_poll,
+                f"[{self._get_name()}] polling {count} PID{"s" if count > 1 else ""}",
             )
-            for pid in pids_to_poll:
+            for pid in self._pids_to_poll():
                 self._poll_pid(pid)
             self.log.debug(
                 f"[{self._get_name()}] done polling for now; checking back in {self.polling_interval_hours}h"
@@ -348,6 +350,9 @@ class MamPoller:
 class MamFailuresPoller(MamPoller):
     """MamFailuresPoller is responsible for polling MediaHaven for failed SIPs."""
 
-    def _get_pids_to_poll(self) -> list[str]:
+    def _count_pids_to_poll(self) -> int:
+        return self.db_client.count_recent_failed_sips()
+
+    def _pids_to_poll(self) -> Iterator[str]:
         self.log.debug(f"[{self._get_name()}] looking for recent failed SIPs")
         return self.db_client.select_recent_failed_sips()
