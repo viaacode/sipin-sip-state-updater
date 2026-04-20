@@ -62,10 +62,16 @@ class DbClient:
             with self.pool.connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        query=sql.SQL(
-                            """SELECT COUNT(DISTINCT pid) FROM {}
-                            WHERE status = %(in_progress)s AND pid IS NOT NULL;"""
-                        ).format(sql.Identifier(self.schema, self.table)),
+                        query=sql.SQL("""SELECT COUNT(*)
+                            FROM (
+                                SELECT DISTINCT ON (pid) pid, status
+                                FROM {}
+                                WHERE NULLIF(pid, '') IS NOT NULL
+                                ORDER BY pid, created_at DESC
+                            ) latest
+                            WHERE status = %(in_progress)s;""").format(
+                            sql.Identifier(self.schema, self.table)
+                        ),
                         params={"in_progress": SipStatus.IN_PROGRESS},
                     )
                     row = cur.fetchone()
@@ -84,10 +90,16 @@ class DbClient:
                 with conn.cursor() as cur:
                     try:
                         cur.execute(
-                            query=sql.SQL(
-                                """SELECT DISTINCT pid FROM {}
-                                WHERE status = %(in_progress)s AND pid IS NOT NULL;"""
-                            ).format(sql.Identifier(self.schema, self.table)),
+                            query=sql.SQL("""SELECT pid
+                                FROM (
+                                    SELECT DISTINCT ON (pid) pid, correlation_id, status
+                                    FROM {}
+                                    WHERE NULLIF(pid, '') IS NOT NULL
+                                    ORDER BY pid, created_at DESC
+                                ) latest
+                                WHERE status = %(in_progress)s;""").format(
+                                sql.Identifier(self.schema, self.table)
+                            ),
                             params={"in_progress": SipStatus.IN_PROGRESS},
                         )
                         for row in cur:
@@ -109,11 +121,15 @@ class DbClient:
             with self.pool.connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        query=sql.SQL("""SELECT COUNT(DISTINCT pid) FROM {}
-                            WHERE status = %(failure)s
-                             AND pid != ''
-                             AND pid IS NOT NULL
-                             AND created_at > %(timestamp)s;""").format(
+                        query=sql.SQL("""SELECT COUNT(*)
+                            FROM (
+                                SELECT DISTINCT ON (pid) pid, status
+                                FROM {}
+                                WHERE NULLIF(pid, '') IS NOT NULL
+                                    AND created_at > %(timestamp)s
+                                ORDER BY pid, created_at DESC
+                            ) latest
+                            WHERE status = %(failure)s;""").format(
                             sql.Identifier(self.schema, self.table)
                         ),
                         params={
@@ -140,11 +156,15 @@ class DbClient:
                         f"[DB] Looking for failed SIPs created after {cutoff_timestamp}"
                     )
                     cur.execute(
-                        query=sql.SQL("""SELECT DISTINCT pid FROM {}
-                            WHERE status = %(failure)s
-                             AND pid != ''
-                             AND pid IS NOT NULL
-                             AND created_at > %(timestamp)s;""").format(
+                        query=sql.SQL("""SELECT pid
+                            FROM (
+                                SELECT DISTINCT ON (pid) pid, correlation_id, status
+                                FROM {}
+                                WHERE NULLIF(pid, '') IS NOT NULL
+                                AND created_at > %(timestamp)s
+                                ORDER BY pid, created_at DESC
+                            ) latest
+                            WHERE status = %(failure)s;""").format(
                             sql.Identifier(self.schema, self.table)
                         ),
                         params={
@@ -257,7 +277,9 @@ class DbClient:
                             last_event_type=%(event_type)s,
                             last_event_occurred_at=%(event_timestamp)s
                         WHERE pid=%(pid)s
-                          AND status=%(in_progress)s;""").format(
+                          AND last_event_occurred_at<%(event_timestamp)s
+                          AND (last_event_type IS DISTINCT FROM %(event_type)s
+                            OR status IS DISTINCT FROM %(success)s);""").format(
                         sql.Identifier(self.schema, self.table)
                     ),
                     params={
@@ -282,15 +304,18 @@ class DbClient:
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    query=sql.SQL("""UPDATE {}
+                    query=sql.SQL(
+                        """UPDATE {}
                         SET status=%(failure)s,
                             last_event_type=%(event_type)s,
                             last_event_occurred_at=%(event_timestamp)s,
                             failure_message=%(failure_message)s
                         WHERE pid=%(pid)s
-                          AND status=%(in_progress)s;""").format(
-                        sql.Identifier(self.schema, self.table)
-                    ),
+                          AND last_event_occurred_at<%(event_timestamp)s
+                          AND (last_event_type IS DISTINCT FROM %(event_type)s
+                            OR status IS DISTINCT FROM %(failure)s
+                            OR failure_message IS DISTINCT FROM %(failure_message)s);"""
+                    ).format(sql.Identifier(self.schema, self.table)),
                     params={
                         "failure": SipStatus.FAILURE,
                         "failure_message": (
