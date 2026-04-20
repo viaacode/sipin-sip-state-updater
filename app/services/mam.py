@@ -15,13 +15,14 @@ from viaa.configuration import ConfigParser
 import time
 
 # local imports
+from app import MamRecord
 from app.config import MediaHavenConfig
 
 # type imports
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from app import Logger, MamRecord
+    from app import Logger
     from app.services.db import DbClient
     from threading import Event
     from typing import Any, Iterator, Optional, Self, Tuple
@@ -126,17 +127,36 @@ class MamPoller:
             f"+(OriginalFilename:{pid}.zip)"
         )
 
-    def _get_records_from_page_object(
+    def _get_record_from_page_object(
         self,
+        pid: str,
+        target: RecordType,
+        query: str,
         page: MediaHavenPageObjectJSON,
-    ) -> list[MamRecord]:
-        n = cast(int, page.total_nr_of_results)
-        records = []
-        if n > 0:
-            records = list(page.as_generator())
+    ) -> Optional[MamRecord]:
+        records = page.as_generator()
+        count = cast(int, page.total_nr_of_results)
+        if count == 1:
+            record = next(records)
+            return cast(MamRecord, record)
+        elif count > 1:
+            record, *deleted_records = sorted(
+                records,
+                key=lambda record: record.Administrative.ArchiveDate,
+                reverse=True,
+            )
+            if any(
+                record.Administrative.DeleteStatus == "NotDeleted"
+                for record in deleted_records
+            ):
+                message = f"found {count} {target.name} records for PID `{pid}' and fewer than n-1 records were deleted"
+                self.log.warning(message, pid=pid, query=query)
+            else:
+                message = f"found {count} {target.name} records for PID `{pid}' but at least n-1 records were deleted"
+                self.log.info(message, pid=pid, query=query)
+            return cast(MamRecord, record)
         else:
-            records = []
-        return records
+            return None
 
     def _get_name(self) -> str:
         return type(self).__name__
@@ -167,16 +187,7 @@ class MamPoller:
             accept_format=AcceptFormat.JSON,
             q=query,
         )
-        records = self._get_records_from_page_object(result)
-        if (n := len(records)) > 1:
-            self.log.warning(
-                f"found {n} {target.name} records for PID `{pid}'", pid=pid, query=query
-            )
-            return records[0]
-        elif n == 1:
-            return records[0]
-        else:
-            return None
+        return self._get_record_from_page_object(pid, target, query, result)
 
     @staticmethod
     def _is_success(record: MamRecord, record_type: RecordType) -> bool:
