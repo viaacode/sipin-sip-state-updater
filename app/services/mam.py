@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from app import Logger, MamRecord
     from app.services.db import DbClient
     from threading import Event
-    from typing import Any, Iterator, Optional, Self
+    from typing import Any, Iterator, Optional, Self, Tuple
 
 
 class RecordType(StrEnum):
@@ -149,13 +149,13 @@ class MamPoller:
         elif sip_record := self._query_mam(pid, target=RecordType.SIP):
             return sip_record, RecordType.SIP
         else:
-            return
+            return None
 
     def _query_mam(
         self, pid: str, target: RecordType = RecordType.IE
     ) -> Optional[MamRecord]:
         if not pid:
-            return
+            return None
 
         match target:
             case RecordType.IE:
@@ -178,7 +178,7 @@ class MamPoller:
         elif n == 1:
             return records[0]
         else:
-            return
+            return None
 
     @staticmethod
     def _is_success(record: MamRecord, record_type: RecordType) -> bool:
@@ -287,16 +287,17 @@ class MamPoller:
 
     def _poll_pid(self, pid: str) -> None:
         try:
-            record, record_type = self._query_record_by_pid(pid)
-            if record:
+            result = self._query_record_by_pid(pid)
+            if not result:
+                self.log.debug(f"didn't find MAM record for PID `{pid}'", pid=pid)
+            else:
+                record, record_type = result
                 self.log.debug(
                     f"found {record_type.name} for PID `{pid}'",
                     pid=pid,
                     monitoring_url=self._get_link_to_monitoring(record),
                 )
                 self._check_record_status(record, pid, record_type)
-        except TypeError:
-            self.log.debug(f"didn't find MAM record for PID `{pid}'", pid=pid)
         except Exception as e:
             self.log.exception(f"failed to poll for PID `{pid}': {e}", pid=pid)
         finally:
@@ -324,10 +325,10 @@ class MamPoller:
         """Return the polling interval, in seconds."""
         return self.polling_interval_hours * 60 * 60
 
-    def _is_running(self):
+    def _is_running(self) -> bool:
         return not self.shutdown.is_set()
 
-    def _wait(self):
+    def _wait(self) -> None:
         self.log.debug(
             f"[{self._get_name()}] done polling; checking back in {self.polling_interval_hours}h"
         )
