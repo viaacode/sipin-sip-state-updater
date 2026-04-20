@@ -110,7 +110,7 @@ class MamPoller:
             "+(Administrative.DeleteStatus:*)"
             "+(Internal.IsInIngestSpace:*)"
             "+(Structural.Relations.ContainedBy:*)"
-            f"+(Dynamic.PID:{pid})"
+            f"+(Administrative.ExternalId:{pid})"
         )
 
     @staticmethod
