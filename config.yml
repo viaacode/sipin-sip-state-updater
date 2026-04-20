@@ -12,6 +12,7 @@ app:
         username: !ENV ${DB_USERNAME}
         password: !ENV ${DB_PASSWORD}
         table: !ENV ${DB_TABLE}
+        failure_cutoff_weeks: !ENV ${FAILURE_CUTOFF_WEEKS}
     mediahaven:
         id: !ENV ${MEDIAHAVEN_CLIENT_ID}
         secret: !ENV ${MEDIAHAVEN_CLIENT_SECRET}

@@ -12,7 +12,6 @@ from viaa.observability import logging
 DEFAULT_SIP_FAILURE_MESSAGE = "SIP ingest failed"
 DEFAULT_MAM_FAILURE_MESSAGE = "MediaHaven ingest failed"
 POLLER_EVENT_TYPE = "mediahaven.sip.archived"
-RECENCY_CUTOFF_WEEKS = 4
 
 
 class SipStatus(StrEnum):
@@ -43,6 +42,7 @@ class DbClient:
             ),
             min_size=4,  # default: 4
         )
+        self._cutoff = float(db_config["failure_cutoff_weeks"])
         self.schema = "public"
         self.table = db_config["table"]
 
@@ -71,6 +71,9 @@ class DbClient:
             self.log.exception(f"Failed to select SIPs in progress: {e}")
         return []
 
+    def _get_cutoff_timestamp(self) -> datetime:
+        return datetime.now() - timedelta(weeks=self._cutoff)
+
     def select_recent_failed_sips(
         self,
     ) -> list[str]:
@@ -82,9 +85,7 @@ class DbClient:
             with self.pool.connection() as conn:
                 with conn.cursor() as cur:
                     try:
-                        cutoff_timestamp = datetime.now() - timedelta(
-                            weeks=RECENCY_CUTOFF_WEEKS
-                        )
+                        cutoff_timestamp = self._get_cutoff_timestamp()
                         self.log.info(
                             f"[DB] Looking for failed SIPs created after {cutoff_timestamp}"
                         )
