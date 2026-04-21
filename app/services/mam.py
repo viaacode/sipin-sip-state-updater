@@ -191,8 +191,6 @@ class MamPoller:
                 query = self._get_mediahaven_ie_query(pid)
             case RecordType.SIP:
                 query = self._get_mediahaven_sip_query(pid)
-            case _:
-                raise ValueError(f"Unknown query type `{target}' in MAM query")
 
         search_result = self.mam_client.records.search(
             accept_format=AcceptFormat.JSON,
@@ -217,8 +215,6 @@ class MamPoller:
                         record.Administrative.RecordStatus == "Accepted"
                         or record.Administrative.RecordStatus == "Published"
                     )
-                case _:
-                    return False
         except Exception:
             return False
 
@@ -334,8 +330,6 @@ class MamPoller:
                     event_timestamp=result.timestamp,
                     failure_message=result.message,
                 )
-            case _:
-                raise ValueError(f"Unknown status `{status}' when recording status")
 
     def _poll_mam(self) -> None:
         """Get the PIDs to poll for and poll them."""
