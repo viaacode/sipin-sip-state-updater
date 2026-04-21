@@ -225,8 +225,6 @@ class DbClient:
                             last_event_type=%(event_type)s,
                             last_event_occurred_at=%(event_timestamp)s
                         WHERE correlation_id=%(correlation_id)s
-                            AND (last_event_occurred_at IS NULL
-                                OR last_event_occurred_at < %(event_timestamp)s)
                             AND (last_event_type IS DISTINCT FROM %(event_type)s
                                 OR status IS DISTINCT FROM %(success)s);""").format(
                         sql.Identifier(self.schema, self.table)
@@ -260,8 +258,6 @@ class DbClient:
                             last_event_occurred_at=%(event_timestamp)s,
                             failure_message=%(failure_message)s
                         WHERE correlation_id=%(correlation_id)s
-                          AND (last_event_occurred_at IS NULL
-                            OR last_event_occurred_at < %(event_timestamp)s)
                           AND (last_event_type IS DISTINCT FROM %(event_type)s
                             OR status IS DISTINCT FROM %(failure)s
                             OR failure_message IS DISTINCT FROM %(failure_message)s);"""
