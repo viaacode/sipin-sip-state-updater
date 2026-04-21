@@ -1,7 +1,6 @@
 # Standard
 from __future__ import annotations
 from datetime import datetime, timedelta
-from enum import StrEnum, auto
 
 # Third-party
 from psycopg import sql
@@ -9,6 +8,9 @@ from psycopg_pool import ConnectionPool
 from typing import Optional
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
+
+# Local
+from app import SipStatus
 
 # Typing
 from typing import TYPE_CHECKING
@@ -19,12 +21,6 @@ if TYPE_CHECKING:
 DEFAULT_SIP_FAILURE_MESSAGE = "SIP ingest failed"
 DEFAULT_MAM_FAILURE_MESSAGE = "MediaHaven ingest failed"
 POLLER_EVENT_TYPE = "mediahaven.sip.archived"
-
-
-class SipStatus(StrEnum):
-    IN_PROGRESS = auto()
-    SUCCESS = auto()
-    FAILURE = auto()
 
 
 class DbClient:

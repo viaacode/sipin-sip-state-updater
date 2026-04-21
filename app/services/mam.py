@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 # stdlib imports
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum, auto
 
@@ -15,7 +16,7 @@ from viaa.configuration import ConfigParser
 import time
 
 # local imports
-from app import MamRecord
+from app import MamRecord, SipStatus
 from app.config import MediaHavenConfig
 
 # type imports
@@ -28,9 +29,19 @@ if TYPE_CHECKING:
     from typing import Any, Iterator, Optional, Self, Tuple
 
 
+SLEEP_POLL_SECONDS = 1
+
+
 class RecordType(StrEnum):
     IE = auto()
     SIP = auto()
+
+
+@dataclass
+class CheckResult:
+    status: SipStatus
+    timestamp: datetime
+    message: Optional[str] = None
 
 
 class MamPoller:
@@ -183,11 +194,13 @@ class MamPoller:
             case _:
                 raise ValueError(f"Unknown query type `{target}' in MAM query")
 
-        result = self.mam_client.records.search(
+        search_result = self.mam_client.records.search(
             accept_format=AcceptFormat.JSON,
             q=query,
         )
-        return self._get_record_from_page_object(pid, target, query, result)
+        return self._get_record_from_page_object(
+            pid=pid, target=target, query=query, page=search_result
+        )
 
     @staticmethod
     def _is_success(record: MamRecord, record_type: RecordType) -> bool:
@@ -248,13 +261,10 @@ class MamPoller:
         except Exception:
             return None
 
-    def _check_record_status(
+    def _check_record(
         self, record: MamRecord, pid: str, record_type: RecordType
-    ) -> None:
-        """
-        Check the status of a MediaHaven record and store it in the SIP
-        deliveries database.
-        """
+    ) -> CheckResult:
+        """Check the status of a MediaHaven record."""
         if self._is_success(record, record_type):
             timestamp = self._get_archived_date(record)
             self.log.debug(
@@ -262,24 +272,24 @@ class MamPoller:
                 pid=pid,
                 status="success",
             )
-            self.db_client.update_sip_mam_success(
-                pid=pid,
-                event_timestamp=timestamp,
-            )
+            return CheckResult(status=SipStatus.SUCCESS, timestamp=timestamp)
         elif self._is_failure(record, record_type):
             timestamp = self._get_rejection_date(record)
+            message = self._get_failure_message(record)
             self.log.info(
                 f"SIP `{pid}' failed to archive at {timestamp}",
                 pid=pid,
                 status="failure",
+                message=message,
             )
-            self.db_client.update_sip_mam_failure(
-                pid=pid,
-                event_timestamp=timestamp,
-                failure_message=self._get_failure_message(record),
+            return CheckResult(
+                status=SipStatus.FAILURE,
+                timestamp=timestamp,
+                message=message,
             )
         else:
-            self.log.debug(f"SIP `{pid}' neither failed nor succeeded", pid=pid)
+            self.log.debug(f"SIP `{pid}' in progress", pid=pid)
+            return CheckResult(status=SipStatus.IN_PROGRESS, timestamp=datetime.now())
 
     def _pids_to_poll(self) -> Iterator[str]:
         self.log.debug(f"[{self._get_name()}] looking for SIPs in progress")
@@ -290,31 +300,50 @@ class MamPoller:
         fragment = record.Internal.FragmentId
         return f"{base}/monitoring/index.php?config=default&service=MediaHaven&view=Files&umid={fragment}"
 
-    def _poll_pid(self, pid: str) -> None:
+    def _poll_pid(self, pid: str) -> Optional[CheckResult]:
+        check_result = None
         try:
-            result = self._query_record_by_pid(pid)
-            if not result:
+            query_result = self._query_record_by_pid(pid)
+            if not query_result:
                 self.log.debug(f"didn't find MAM record for PID `{pid}'", pid=pid)
             else:
-                record, record_type = result
+                record, record_type = query_result
                 self.log.debug(
                     f"found {record_type.name} for PID `{pid}'",
                     pid=pid,
-                    monitoring_url=self._get_link_to_monitoring(record),
+                    monitoring=self._get_link_to_monitoring(record),
                 )
-                self._check_record_status(record, pid, record_type)
+                check_result = self._check_record(record, pid, record_type)
         except Exception as e:
             self.log.exception(f"failed to poll for PID `{pid}': {e}", pid=pid)
         finally:
-            time.sleep(0.1)
+            return check_result
+
+    def _persist_status(self, pid: str, result: CheckResult) -> None:
+        match result.status:
+            case SipStatus.IN_PROGRESS:
+                return
+            case SipStatus.SUCCESS:
+                self.db_client.update_sip_mam_success(
+                    pid=pid,
+                    event_timestamp=result.timestamp,
+                )
+            case SipStatus.FAILURE:
+                self.db_client.update_sip_mam_failure(
+                    pid=pid,
+                    event_timestamp=result.timestamp,
+                    failure_message=result.message,
+                )
+            case _:
+                raise ValueError(f"Unknown status `{status}' when recording status")
 
     def _poll_mam(self) -> None:
         """Get the PIDs to poll for and poll them."""
         for pid in self._pids_to_poll():
-            self._poll_pid(pid)
-        self.log.debug(
-            f"[{self._get_name()}] done polling; checking back in {self.polling_interval_hours}h"
-        )
+            result = self._poll_pid(pid)
+            if result:
+                self._persist_status(pid, result)
+            time.sleep(SLEEP_POLL_SECONDS)
 
     def _get_polling_interval_seconds(self) -> float:
         """Return the polling interval, in seconds."""
@@ -334,6 +363,9 @@ class MamPoller:
         while self._is_running():
             try:
                 self._poll_mam()
+                self.log.debug(
+                    f"[{self._get_name()}] done polling; checking back in {self.polling_interval_hours}h"
+                )
             except Exception as e:
                 self.log.exception(f"[{self._get_name()}] failure during polling: {e}")
             finally:
