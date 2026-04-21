@@ -59,7 +59,7 @@ class MamPoller:
         self.config = config
         self.mam_client = mam_client
         self.db_client = db_client
-        self.log = log
+        self.log = log.bind(poller=self._get_name())
         self.shutdown = shutdown
         self.polling_interval_hours = polling_interval_hours
 
@@ -288,7 +288,7 @@ class MamPoller:
             return CheckResult(status=SipStatus.IN_PROGRESS, timestamp=datetime.now())
 
     def _sipin_records_to_poll(self) -> Iterator[SipinRecord]:
-        self.log.debug(f"[{self._get_name()}] looking for SIPs in progress")
+        self.log.debug(f"looking for SIPs in progress")
         return self.db_client.select_sips_in_progress()
 
     def _get_link_to_monitoring(self, record: MamRecord) -> str:
@@ -301,7 +301,10 @@ class MamPoller:
         try:
             query_result = self._query_record_by_pid(pid)
             if not query_result:
-                self.log.debug(f"didn't find MAM record for PID `{pid}'", pid=pid)
+                self.log.debug(
+                    f"didn't find MAM record for PID `{pid}'",
+                    pid=pid,
+                )
             else:
                 record, record_type = query_result
                 self.log.debug(
@@ -347,9 +350,7 @@ class MamPoller:
         return not self.shutdown.is_set()
 
     def _wait(self) -> None:
-        self.log.debug(
-            f"[{self._get_name()}] done polling; checking back in {self.polling_interval_hours}h"
-        )
+        self.log.debug(f"done polling; checking back in {self.polling_interval_hours}h")
         self.shutdown.wait(self._get_polling_interval_seconds())
 
     def poll(self) -> None:
@@ -357,11 +358,8 @@ class MamPoller:
         while self._is_running():
             try:
                 self._poll_mam()
-                self.log.debug(
-                    f"[{self._get_name()}] done polling; checking back in {self.polling_interval_hours}h"
-                )
             except Exception as e:
-                self.log.exception(f"[{self._get_name()}] failure during polling: {e}")
+                self.log.exception(f"failure during polling: {e}")
             finally:
                 self._wait()
 
@@ -370,5 +368,5 @@ class MamFailuresPoller(MamPoller):
     """MamFailuresPoller is responsible for polling MediaHaven for failed SIPs."""
 
     def _sipin_records_to_poll(self) -> Iterator[SipinRecord]:
-        self.log.debug(f"[{self._get_name()}] looking for recent failed SIPs")
+        self.log.debug(f"looking for recent failed SIPs")
         return self.db_client.select_recent_failed_sips()
