@@ -196,11 +196,8 @@ class MamPoller:
             match record_type:
                 case RecordType.IE:
                     return bool(
-                        record.Internal.ArchiveStatus == "completed"
-                        and (
-                            record.Administrative.RecordStatus == "Published"
-                            or record.Administrative.RecordStatus == "Draft.Valid"
-                        )
+                        record.Administrative.RecordStatus == "Published"
+                        or record.Administrative.RecordStatus == "Draft.Valid"
                     )
                 case RecordType.SIP:
                     return bool(
@@ -217,8 +214,7 @@ class MamPoller:
         """Define a failed SIP based on MediaHaven record field values."""
         try:
             return bool(
-                record.Internal.ArchiveStatus == "failed"
-                or record.Administrative.RecordStatus == "Draft.Invalid"
+                record.Administrative.RecordStatus == "Draft.Invalid"
                 or record.Administrative.RecordStatus == "Rejected"
             )
         except Exception:
