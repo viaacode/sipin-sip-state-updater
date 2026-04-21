@@ -104,15 +104,26 @@ class DbClient:
                             SELECT DISTINCT ON (pid) pid, correlation_id, status
                             FROM {}
                             WHERE NULLIF(pid, '') IS NOT NULL
-                            AND created_at > %(timestamp)s
+                                AND created_at > %(timestamp)s
+                                AND last_event_type IS DISTINCT FROM %(event_type)s
                             ORDER BY pid, created_at DESC
-                        ) latest
-                        WHERE status = %(failure)s;""").format(
-                        sql.Identifier(self.schema, self.table)
+                        ) AS latest
+                        WHERE status = %(failure)s
+                          AND NOT EXISTS (
+                            SELECT 1
+                            FROM {}
+                            WHERE pid = latest.pid
+                              AND status = %(success)s
+                              AND last_event_type = %(event_type)s
+                          );""").format(
+                        sql.Identifier(self.schema, self.table),
+                        sql.Identifier(self.schema, self.table),
                     ),
                     params={
                         "failure": SipStatus.FAILURE,
+                        "success": SipStatus.SUCCESS,
                         "timestamp": cutoff_timestamp,
+                        "event_type": POLLER_EVENT_TYPE,
                     },
                 )
                 for row in cur:
