@@ -10,7 +10,7 @@ from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
 # Local
-from app import SipStatus
+from app import SipStatus, SipinRecord
 
 # Typing
 from typing import TYPE_CHECKING
@@ -57,7 +57,7 @@ class DbClient:
         self.schema = "public"
         self.table = db_config["table"]
 
-    def select_sips_in_progress(self) -> Iterator[str]:
+    def select_sips_in_progress(self) -> Iterator[SipinRecord]:
         """
         Query the sipin table and select all rows where the PID is
         set and the status is `in progress'.
@@ -65,7 +65,7 @@ class DbClient:
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    query=sql.SQL("""SELECT pid
+                    query=sql.SQL("""SELECT pid, correlation_id
                         FROM (
                             SELECT DISTINCT ON (pid) pid, correlation_id, status
                             FROM {}
@@ -78,12 +78,12 @@ class DbClient:
                     params={"in_progress": SipStatus.IN_PROGRESS},
                 )
                 for row in cur:
-                    yield row[0]
+                    yield SipinRecord(*row)
 
     def _get_cutoff_timestamp(self) -> datetime:
         return datetime.now() - timedelta(weeks=self._cutoff)
 
-    def select_recent_failed_sips(self) -> Iterator[str]:
+    def select_recent_failed_sips(self) -> Iterator[SipinRecord]:
         """
         Query the sipin table and select all rows where the status is
         `failed' and the created_at timestamp is less than 4 weeks old.
@@ -95,7 +95,7 @@ class DbClient:
                     f"[DB] Looking for failed SIPs created after {cutoff_timestamp}"
                 )
                 cur.execute(
-                    query=sql.SQL("""SELECT pid
+                    query=sql.SQL("""SELECT pid, correlation_id
                         FROM (
                             SELECT DISTINCT ON (pid) pid, correlation_id, status
                             FROM {}
@@ -123,7 +123,7 @@ class DbClient:
                     },
                 )
                 for row in cur:
-                    yield row[0]
+                    yield SipinRecord(*row)
 
     def update_sip_ingest_failed(
         self,

@@ -1,4 +1,5 @@
 from enum import StrEnum, auto
+from dataclasses import dataclass
 from structlog.stdlib import BoundLogger
 from types import SimpleNamespace
 
@@ -16,6 +17,12 @@ class SipStatus(StrEnum):
     IN_PROGRESS = auto()
     SUCCESS = auto()
     FAILURE = auto()
+
+
+@dataclass
+class SipinRecord:
+    pid: str
+    correlation_id: str
 
 
 Logger = BoundLogger

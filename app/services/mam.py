@@ -16,7 +16,7 @@ from viaa.configuration import ConfigParser
 import time
 
 # local imports
-from app import MamRecord, SipStatus
+from app import MamRecord, SipStatus, SipinRecord
 from app.config import MediaHavenConfig
 
 # type imports
@@ -291,7 +291,7 @@ class MamPoller:
             self.log.debug(f"SIP `{pid}' in progress", pid=pid)
             return CheckResult(status=SipStatus.IN_PROGRESS, timestamp=datetime.now())
 
-    def _pids_to_poll(self) -> Iterator[str]:
+    def _sipin_records_to_poll(self) -> Iterator[SipinRecord]:
         self.log.debug(f"[{self._get_name()}] looking for SIPs in progress")
         return self.db_client.select_sips_in_progress()
 
@@ -319,18 +319,18 @@ class MamPoller:
         finally:
             return check_result
 
-    def _persist_status(self, pid: str, result: CheckResult) -> None:
+    def _persist_status(self, record: SipinRecord, result: CheckResult) -> None:
         match result.status:
             case SipStatus.IN_PROGRESS:
                 return
             case SipStatus.SUCCESS:
                 self.db_client.update_sip_mam_success(
-                    pid=pid,
+                    pid=record.pid,
                     event_timestamp=result.timestamp,
                 )
             case SipStatus.FAILURE:
                 self.db_client.update_sip_mam_failure(
-                    pid=pid,
+                    pid=record.pid,
                     event_timestamp=result.timestamp,
                     failure_message=result.message,
                 )
@@ -339,10 +339,10 @@ class MamPoller:
 
     def _poll_mam(self) -> None:
         """Get the PIDs to poll for and poll them."""
-        for pid in self._pids_to_poll():
-            result = self._poll_pid(pid)
+        for record in self._sipin_records_to_poll():
+            result = self._poll_pid(record.pid)
             if result:
-                self._persist_status(pid, result)
+                self._persist_status(record, result)
             time.sleep(SLEEP_POLL_SECONDS)
 
     def _get_polling_interval_seconds(self) -> float:
@@ -375,6 +375,6 @@ class MamPoller:
 class MamFailuresPoller(MamPoller):
     """MamFailuresPoller is responsible for polling MediaHaven for failed SIPs."""
 
-    def _pids_to_poll(self) -> Iterator[str]:
+    def _sipin_records_to_poll(self) -> Iterator[SipinRecord]:
         self.log.debug(f"[{self._get_name()}] looking for recent failed SIPs")
         return self.db_client.select_recent_failed_sips()
