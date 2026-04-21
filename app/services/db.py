@@ -213,7 +213,7 @@ class DbClient:
 
     def update_sip_mam_success(
         self,
-        pid: str,
+        correlation_id: str,
         event_timestamp: datetime,
     ) -> int:
         """Mark a SIP as correctly archived in MediaHaven in the state database."""
@@ -224,7 +224,7 @@ class DbClient:
                         SET status=%(success)s,
                             last_event_type=%(event_type)s,
                             last_event_occurred_at=%(event_timestamp)s
-                        WHERE pid=%(pid)s
+                        WHERE correlation_id=%(correlation_id)s
                             AND (last_event_occurred_at IS NULL
                                 OR last_event_occurred_at < %(event_timestamp)s)
                             AND (last_event_type IS DISTINCT FROM %(event_type)s
@@ -236,7 +236,7 @@ class DbClient:
                         "in_progress": SipStatus.IN_PROGRESS,
                         "event_type": POLLER_EVENT_TYPE,
                         "event_timestamp": event_timestamp,
-                        "pid": pid,
+                        "correlation_id": correlation_id,
                     },
                 )
                 conn.commit()
@@ -245,7 +245,7 @@ class DbClient:
 
     def update_sip_mam_failure(
         self,
-        pid: str,
+        correlation_id: str,
         event_timestamp: datetime,
         failure_message: Optional[str],
     ) -> int:
@@ -259,7 +259,7 @@ class DbClient:
                             last_event_type=%(event_type)s,
                             last_event_occurred_at=%(event_timestamp)s,
                             failure_message=%(failure_message)s
-                        WHERE pid=%(pid)s
+                        WHERE correlation_id=%(correlation_id)s
                           AND (last_event_occurred_at IS NULL
                             OR last_event_occurred_at < %(event_timestamp)s)
                           AND (last_event_type IS DISTINCT FROM %(event_type)s
@@ -276,7 +276,7 @@ class DbClient:
                         "in_progress": SipStatus.IN_PROGRESS,
                         "event_type": POLLER_EVENT_TYPE,
                         "event_timestamp": event_timestamp,
-                        "pid": pid,
+                        "correlation_id": correlation_id,
                     },
                 )
                 conn.commit()

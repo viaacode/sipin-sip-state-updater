@@ -325,12 +325,12 @@ class MamPoller:
                 return
             case SipStatus.SUCCESS:
                 self.db_client.update_sip_mam_success(
-                    pid=record.pid,
+                    correlation_id=record.correlation_id,
                     event_timestamp=result.timestamp,
                 )
             case SipStatus.FAILURE:
                 self.db_client.update_sip_mam_failure(
-                    pid=record.pid,
+                    correlation_id=record.correlation_id,
                     event_timestamp=result.timestamp,
                     failure_message=result.message,
                 )
