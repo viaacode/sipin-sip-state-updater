@@ -62,21 +62,20 @@ class DbClient:
         Query the sipin table and select all rows where the PID is
         set and the status is `in progress'.
         """
+        query = sql.SQL("""SELECT pid, correlation_id
+            FROM (
+                SELECT DISTINCT ON (pid) pid, correlation_id, status
+                FROM {}
+                WHERE NULLIF(pid, '') IS NOT NULL
+                ORDER BY pid, created_at DESC
+            ) latest
+            WHERE status = %(in_progress)s;""").format(
+            sql.Identifier(self.schema, self.table)
+        )
+        params = {"in_progress": SipStatus.IN_PROGRESS}
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    query=sql.SQL("""SELECT pid, correlation_id
-                        FROM (
-                            SELECT DISTINCT ON (pid) pid, correlation_id, status
-                            FROM {}
-                            WHERE NULLIF(pid, '') IS NOT NULL
-                            ORDER BY pid, created_at DESC
-                        ) latest
-                        WHERE status = %(in_progress)s;""").format(
-                        sql.Identifier(self.schema, self.table)
-                    ),
-                    params={"in_progress": SipStatus.IN_PROGRESS},
-                )
+                cur.execute(query=query, params=params)
                 for row in cur:
                     yield SipinRecord(*row)
 
@@ -88,40 +87,36 @@ class DbClient:
         Query the sipin table and select all rows where the status is
         `failed' and the created_at timestamp is less than 4 weeks old.
         """
+        cutoff_timestamp = self._get_cutoff_timestamp()
+        self.log.info(f"Looking for failed SIPs created after {cutoff_timestamp}")
+        query = sql.SQL("""SELECT pid, correlation_id
+            FROM (
+                SELECT DISTINCT ON (pid) pid, correlation_id, status
+                FROM {}
+                WHERE NULLIF(pid, '') IS NOT NULL
+                    AND created_at > %(timestamp)s
+                    AND last_event_type IS DISTINCT FROM %(event_type)s
+                ORDER BY pid, created_at DESC
+            ) AS latest
+            WHERE status = %(failure)s
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {}
+                    WHERE pid = latest.pid
+                        AND status = %(success)s
+                        AND last_event_type = %(event_type)s);""").format(
+            sql.Identifier(self.schema, self.table),
+            sql.Identifier(self.schema, self.table),
+        )
+        params = {
+            "failure": SipStatus.FAILURE,
+            "success": SipStatus.SUCCESS,
+            "timestamp": cutoff_timestamp,
+            "event_type": POLLER_EVENT_TYPE,
+        }
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
-                cutoff_timestamp = self._get_cutoff_timestamp()
-                self.log.info(
-                    f"[DB] Looking for failed SIPs created after {cutoff_timestamp}"
-                )
-                cur.execute(
-                    query=sql.SQL("""SELECT pid, correlation_id
-                        FROM (
-                            SELECT DISTINCT ON (pid) pid, correlation_id, status
-                            FROM {}
-                            WHERE NULLIF(pid, '') IS NOT NULL
-                                AND created_at > %(timestamp)s
-                                AND last_event_type IS DISTINCT FROM %(event_type)s
-                            ORDER BY pid, created_at DESC
-                        ) AS latest
-                        WHERE status = %(failure)s
-                          AND NOT EXISTS (
-                            SELECT 1
-                            FROM {}
-                            WHERE pid = latest.pid
-                              AND status = %(success)s
-                              AND last_event_type = %(event_type)s
-                          );""").format(
-                        sql.Identifier(self.schema, self.table),
-                        sql.Identifier(self.schema, self.table),
-                    ),
-                    params={
-                        "failure": SipStatus.FAILURE,
-                        "success": SipStatus.SUCCESS,
-                        "timestamp": cutoff_timestamp,
-                        "event_type": POLLER_EVENT_TYPE,
-                    },
-                )
+                cur.execute(query=query, params=params)
                 for row in cur:
                     yield SipinRecord(*row)
 
@@ -133,30 +128,27 @@ class DbClient:
         failure_message: Optional[str],
     ) -> int:
         """Mark a record in the state database as failed during SIP ingest."""
+        query = sql.SQL("""UPDATE {}
+            SET last_event_type = %(event_type)s,
+                last_event_occurred_at = %(event_timestamp)s,
+                status = %(failure)s,
+                failure_message = %(failure_message)s
+            WHERE correlation_id = %(correlation_id)s
+                AND last_event_occurred_at < %(event_timestamp)s;""").format(
+            sql.Identifier(self.schema, self.table)
+        )
+        params = {
+            "event_type": event_type,
+            "event_timestamp": event_timestamp,
+            "failure": SipStatus.FAILURE,
+            "failure_message": (
+                failure_message if failure_message else DEFAULT_SIP_FAILURE_MESSAGE
+            ),
+            "correlation_id": correlation_id,
+        }
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    query=sql.SQL("""UPDATE {}
-                        SET last_event_type=%(event_type)s,
-                            last_event_occurred_at=%(event_timestamp)s,
-                            status=%(failure)s,
-                            failure_message=%(failure_message)s
-                        WHERE correlation_id=%(correlation_id)s
-                          AND last_event_occurred_at<%(event_timestamp)s;""").format(
-                        sql.Identifier(self.schema, self.table)
-                    ),
-                    params={
-                        "event_type": event_type,
-                        "event_timestamp": event_timestamp,
-                        "failure": SipStatus.FAILURE,
-                        "failure_message": (
-                            failure_message
-                            if failure_message
-                            else DEFAULT_SIP_FAILURE_MESSAGE
-                        ),
-                        "correlation_id": correlation_id,
-                    },
-                )
+                cur.execute(query=query, params=params)
                 conn.commit()
                 row_count = cur.rowcount
         return row_count
@@ -168,22 +160,21 @@ class DbClient:
         event_timestamp: datetime,
     ) -> int:
         """Record a sipin event in the state database."""
+        query = sql.SQL("""UPDATE {}
+            SET last_event_type = %(event_type)s,
+                last_event_occurred_at = %(event_timestamp)s
+            WHERE correlation_id = %(correlation_id)s
+                AND last_event_occurred_at < %(event_timestamp)s;""").format(
+            sql.Identifier(self.schema, self.table)
+        )
+        params = {
+            "event_type": event_type,
+            "event_timestamp": event_timestamp,
+            "correlation_id": correlation_id,
+        }
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    query=sql.SQL("""UPDATE {}
-                        SET last_event_type=%(event_type)s,
-                            last_event_occurred_at=%(event_timestamp)s
-                        WHERE correlation_id=%(correlation_id)s
-                          AND last_event_occurred_at<%(event_timestamp)s;""").format(
-                        sql.Identifier(self.schema, self.table)
-                    ),
-                    params={
-                        "event_type": event_type,
-                        "event_timestamp": event_timestamp,
-                        "correlation_id": correlation_id,
-                    },
-                )
+                cur.execute(query=query, params=params)
                 conn.commit()
                 row_count = cur.rowcount
         return row_count
@@ -194,19 +185,17 @@ class DbClient:
         pid: str,
     ) -> int:
         """Update a record in the state database with its PID."""
+        query = sql.SQL("""UPDATE {}
+            SET pid = %(pid)s
+            WHERE correlation_id = %(correlation_id)s
+                AND pid IS NULL;""").format(sql.Identifier(self.schema, self.table))
+        params = {
+            "pid": pid,
+            "correlation_id": correlation_id,
+        }
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    query=sql.SQL(
-                        """UPDATE {}
-                        SET pid=%(pid)s
-                        WHERE correlation_id=%(correlation_id)s AND pid IS NULL;"""
-                    ).format(sql.Identifier(self.schema, self.table)),
-                    params={
-                        "pid": pid,
-                        "correlation_id": correlation_id,
-                    },
-                )
+                cur.execute(query=query, params=params)
                 conn.commit()
                 row_count = cur.rowcount
         return row_count
@@ -217,26 +206,25 @@ class DbClient:
         event_timestamp: datetime,
     ) -> int:
         """Mark a SIP as correctly archived in MediaHaven in the state database."""
+        query = sql.SQL("""UPDATE {}
+            SET status = %(success)s,
+                last_event_type = %(event_type)s,
+                last_event_occurred_at = %(event_timestamp)s
+            WHERE correlation_id = %(correlation_id)s
+                AND (last_event_type IS DISTINCT FROM %(event_type)s
+                    OR status IS DISTINCT FROM %(success)s);""").format(
+            sql.Identifier(self.schema, self.table)
+        )
+        params = {
+            "success": SipStatus.SUCCESS,
+            "in_progress": SipStatus.IN_PROGRESS,
+            "event_type": POLLER_EVENT_TYPE,
+            "event_timestamp": event_timestamp,
+            "correlation_id": correlation_id,
+        }
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    query=sql.SQL("""UPDATE {}
-                        SET status=%(success)s,
-                            last_event_type=%(event_type)s,
-                            last_event_occurred_at=%(event_timestamp)s
-                        WHERE correlation_id=%(correlation_id)s
-                            AND (last_event_type IS DISTINCT FROM %(event_type)s
-                                OR status IS DISTINCT FROM %(success)s);""").format(
-                        sql.Identifier(self.schema, self.table)
-                    ),
-                    params={
-                        "success": SipStatus.SUCCESS,
-                        "in_progress": SipStatus.IN_PROGRESS,
-                        "event_type": POLLER_EVENT_TYPE,
-                        "event_timestamp": event_timestamp,
-                        "correlation_id": correlation_id,
-                    },
-                )
+                cur.execute(query=query, params=params)
                 conn.commit()
                 row_count = cur.rowcount
         return row_count
@@ -248,33 +236,30 @@ class DbClient:
         failure_message: Optional[str],
     ) -> int:
         """Mark a SIP as failed during MediaHaven ingest in the state database."""
+        query = sql.SQL(
+            """UPDATE {}
+            SET status = %(failure)s,
+                last_event_type = %(event_type)s,
+                last_event_occurred_at = %(event_timestamp)s,
+                failure_message = %(failure_message)s
+            WHERE correlation_id = %(correlation_id)s
+                AND (last_event_type IS DISTINCT FROM %(event_type)s
+                    OR status IS DISTINCT FROM %(failure)s
+                    OR failure_message IS DISTINCT FROM %(failure_message)s);"""
+        ).format(sql.Identifier(self.schema, self.table))
+        params = {
+            "failure": SipStatus.FAILURE,
+            "failure_message": (
+                failure_message if failure_message else DEFAULT_MAM_FAILURE_MESSAGE
+            ),
+            "in_progress": SipStatus.IN_PROGRESS,
+            "event_type": POLLER_EVENT_TYPE,
+            "event_timestamp": event_timestamp,
+            "correlation_id": correlation_id,
+        }
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    query=sql.SQL(
-                        """UPDATE {}
-                        SET status=%(failure)s,
-                            last_event_type=%(event_type)s,
-                            last_event_occurred_at=%(event_timestamp)s,
-                            failure_message=%(failure_message)s
-                        WHERE correlation_id=%(correlation_id)s
-                          AND (last_event_type IS DISTINCT FROM %(event_type)s
-                            OR status IS DISTINCT FROM %(failure)s
-                            OR failure_message IS DISTINCT FROM %(failure_message)s);"""
-                    ).format(sql.Identifier(self.schema, self.table)),
-                    params={
-                        "failure": SipStatus.FAILURE,
-                        "failure_message": (
-                            failure_message
-                            if failure_message
-                            else DEFAULT_MAM_FAILURE_MESSAGE
-                        ),
-                        "in_progress": SipStatus.IN_PROGRESS,
-                        "event_type": POLLER_EVENT_TYPE,
-                        "event_timestamp": event_timestamp,
-                        "correlation_id": correlation_id,
-                    },
-                )
+                cur.execute(query=query, params=params)
                 conn.commit()
                 row_count = cur.rowcount
         return row_count
