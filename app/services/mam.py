@@ -276,9 +276,6 @@ class MamPoller:
         else:
             self.log.debug(f"SIP `{pid}' neither failed nor succeeded", pid=pid)
 
-    def _count_pids_to_poll(self) -> int:
-        return self.db_client.count_sips_in_progress()
-
     def _pids_to_poll(self) -> Iterator[str]:
         self.log.debug(f"[{self._get_name()}] looking for SIPs in progress")
         return self.db_client.select_sips_in_progress()
@@ -307,21 +304,12 @@ class MamPoller:
             time.sleep(0.1)
 
     def _poll_mam(self) -> None:
-        """Get list of PIDs to poll for and poll them."""
-        count = self._count_pids_to_poll()
-        if count > 0:
-            self.log.info(
-                f"[{self._get_name()}] polling {count} PID{"s" if count > 1 else ""}",
-            )
-            for pid in self._pids_to_poll():
-                self._poll_pid(pid)
-            self.log.debug(
-                f"[{self._get_name()}] done polling for now; checking back in {self.polling_interval_hours}h"
-            )
-        else:
-            self.log.debug(
-                f"[{self._get_name()}] no PIDs to poll for; checking back in {self.polling_interval_hours}h"
-            )
+        """Get the PIDs to poll for and poll them."""
+        for pid in self._pids_to_poll():
+            self._poll_pid(pid)
+        self.log.debug(
+            f"[{self._get_name()}] done polling; checking back in {self.polling_interval_hours}h"
+        )
 
     def _get_polling_interval_seconds(self) -> float:
         """Return the polling interval, in seconds."""
@@ -349,9 +337,6 @@ class MamPoller:
 
 class MamFailuresPoller(MamPoller):
     """MamFailuresPoller is responsible for polling MediaHaven for failed SIPs."""
-
-    def _count_pids_to_poll(self) -> int:
-        return self.db_client.count_recent_failed_sips()
 
     def _pids_to_poll(self) -> Iterator[str]:
         self.log.debug(f"[{self._get_name()}] looking for recent failed SIPs")

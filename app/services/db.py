@@ -53,33 +53,6 @@ class DbClient:
         self.schema = "public"
         self.table = db_config["table"]
 
-    def count_sips_in_progress(self) -> int:
-        """
-        Query the sipin table and count all rows where the PID is
-        set and the status is `in progress'.
-        """
-        try:
-            with self.pool.connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        query=sql.SQL("""SELECT COUNT(*)
-                            FROM (
-                                SELECT DISTINCT ON (pid) pid, status
-                                FROM {}
-                                WHERE NULLIF(pid, '') IS NOT NULL
-                                ORDER BY pid, created_at DESC
-                            ) latest
-                            WHERE status = %(in_progress)s;""").format(
-                            sql.Identifier(self.schema, self.table)
-                        ),
-                        params={"in_progress": SipStatus.IN_PROGRESS},
-                    )
-                    row = cur.fetchone()
-                    return row[0] if row else 0
-        except Exception as e:
-            self.log.exception(f"Failed to count SIPs in progress: {e}")
-            return 0
-
     def select_sips_in_progress(self) -> Iterator[str]:
         """
         Query the sipin table and select all rows where the PID is
@@ -111,37 +84,6 @@ class DbClient:
 
     def _get_cutoff_timestamp(self) -> datetime:
         return datetime.now() - timedelta(weeks=self._cutoff)
-
-    def count_recent_failed_sips(self) -> int:
-        """
-        Query the sipin table and count all rows where the status is
-        `failed' and the created_at timestamp is less than 4 weeks old.
-        """
-        try:
-            with self.pool.connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        query=sql.SQL("""SELECT COUNT(*)
-                            FROM (
-                                SELECT DISTINCT ON (pid) pid, status
-                                FROM {}
-                                WHERE NULLIF(pid, '') IS NOT NULL
-                                    AND created_at > %(timestamp)s
-                                ORDER BY pid, created_at DESC
-                            ) latest
-                            WHERE status = %(failure)s;""").format(
-                            sql.Identifier(self.schema, self.table)
-                        ),
-                        params={
-                            "failure": SipStatus.FAILURE,
-                            "timestamp": self._get_cutoff_timestamp(),
-                        },
-                    )
-                    row = cur.fetchone()
-                    return row[0] if row else 0
-        except Exception as e:
-            self.log.exception(f"Failed to count recent failed SIPs: {e}")
-            return 0
 
     def select_recent_failed_sips(self) -> Iterator[str]:
         """
