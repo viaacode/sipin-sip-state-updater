@@ -31,6 +31,14 @@ class DbClient:
     """
     Query and update the state database.  This client is shared between threads
     (the Pulsar message handler and the MediaHaven poller).
+
+    Note on SQL query construction:
+    This class uses psycopg3 to construct queries.  These are dynamic queries with
+    some identifiers (table names) taken from config.  These are interpolated by
+    calling format() on a SQL object.  The query parameters are passed to the
+    execute() method instead.  These are not really interpolated into the query,
+    but sent to the server separately.  In psycopg v3.3 / python 3.14, t-strings
+    could be used instead.
     """
 
     def __init__(self) -> None:
