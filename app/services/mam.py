@@ -36,6 +36,9 @@ class RecordType(StrEnum):
     IE = auto()
     SIP = auto()
 
+    def __str__(self):
+        return f"{self.name}"
+
 
 @dataclass
 class CheckResult:
@@ -178,8 +181,8 @@ class MamPoller:
             match record_type:
                 case RecordType.IE:
                     return bool(
-                        record.Administrative.RecordStatus == "Published"
-                        or record.Administrative.RecordStatus == "Draft.Valid"
+                        record.Administrative.RecordStatus == "Draft.Valid"
+                        or record.Administrative.RecordStatus == "Published"
                     )
                 case RecordType.SIP:
                     return bool(
@@ -347,12 +350,12 @@ class MamPoller:
                 self._persist_status(record, result)
             time.sleep(SLEEP_POLL_SECONDS)
 
+    def _is_running(self) -> bool:
+        return not self.shutdown.is_set()
+
     def _get_polling_interval_seconds(self) -> float:
         """Return the polling interval, in seconds."""
         return self.polling_interval_hours * 60 * 60
-
-    def _is_running(self) -> bool:
-        return not self.shutdown.is_set()
 
     def _wait(self) -> None:
         self.log.debug(f"done polling; checking back in {self.polling_interval_hours}h")
