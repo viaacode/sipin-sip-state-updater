@@ -39,6 +39,7 @@ class RecordType(StrEnum):
 
 @dataclass
 class CheckResult:
+    fragment_id: str
     status: SipStatus
     timestamp: datetime
     message: Optional[str] = None
@@ -111,20 +112,6 @@ class MamPoller:
         return client
 
     @staticmethod
-    def _get_mediahaven_ie_query(
-        pid: str,
-    ) -> str:
-        """Get MediaHaven query by PID."""
-        if not pid:
-            raise ValueError("No PID to build MediaHaven query with")
-        return (
-            "+(Administrative.DeleteStatus:*)"
-            "+(Internal.IsInIngestSpace:*)"
-            "+(Structural.Relations.ContainedBy:*)"
-            f"+(Administrative.ExternalId:{pid})"
-        )
-
-    @staticmethod
     def _get_mediahaven_sip_query(
         pid: str,
     ) -> str:
@@ -141,7 +128,6 @@ class MamPoller:
     def _get_record_from_page_object(
         self,
         pid: str,
-        target: RecordType,
         query: str,
         page: MediaHavenPageObjectJSON,
     ) -> Optional[MamRecord]:
@@ -160,10 +146,10 @@ class MamPoller:
                 record.Administrative.DeleteStatus == "NotDeleted"
                 for record in deleted_records
             ):
-                message = f"found {count} {target.name} records for PID `{pid}' and fewer than n-1 records were deleted"
+                message = f"found {count} records for PID `{pid}' and fewer than n-1 records were deleted"
                 self.log.warning(message, pid=pid, query=query)
             else:
-                message = f"found {count} {target.name} records for PID `{pid}' but at least n-1 records were deleted"
+                message = f"found {count} records for PID `{pid}' but at least n-1 records were deleted"
                 self.log.info(message, pid=pid, query=query)
             return cast(MamRecord, record)
         else:
@@ -172,32 +158,17 @@ class MamPoller:
     def _get_name(self) -> str:
         return type(self).__name__
 
-    def _query_record_by_pid(self, pid: str) -> Optional[Tuple[MamRecord, RecordType]]:
-        if ie_record := self._query_mam(pid, target=RecordType.IE):
-            return ie_record, RecordType.IE
-        elif sip_record := self._query_mam(pid, target=RecordType.SIP):
-            return sip_record, RecordType.SIP
-        else:
-            return None
-
-    def _query_mam(
-        self, pid: str, target: RecordType = RecordType.IE
-    ) -> Optional[MamRecord]:
+    def _query_sip(self, pid: str) -> Optional[MamRecord]:
         if not pid:
             return None
 
-        match target:
-            case RecordType.IE:
-                query = self._get_mediahaven_ie_query(pid)
-            case RecordType.SIP:
-                query = self._get_mediahaven_sip_query(pid)
-
+        query = self._get_mediahaven_sip_query(pid)
         search_result = self.mam_client.records.search(
             accept_format=AcceptFormat.JSON,
             q=query,
         )
         return self._get_record_from_page_object(
-            pid=pid, target=target, query=query, page=search_result
+            pid=pid, query=query, page=search_result
         )
 
     @staticmethod
@@ -264,59 +235,93 @@ class MamPoller:
         if self._is_success(record, record_type):
             timestamp = self._get_archived_date(record)
             self.log.debug(
-                f"SIP `{pid}' was successfully archived at {timestamp}",
+                f"{record_type} looks succesful at {timestamp}",
                 pid=pid,
                 status="success",
             )
-            return CheckResult(status=SipStatus.SUCCESS, timestamp=timestamp)
+            return CheckResult(
+                fragment_id=record.Internal.FragmentId,
+                status=SipStatus.SUCCESS,
+                timestamp=timestamp,
+            )
         elif self._is_failure(record, record_type):
             timestamp = self._get_rejection_date(record)
             message = self._get_failure_message(record)
             self.log.info(
-                f"SIP `{pid}' failed to archive at {timestamp}",
+                f"{record_type} looks failed at {timestamp}",
                 pid=pid,
                 status="failure",
                 message=message,
             )
             return CheckResult(
+                fragment_id=record.Internal.FragmentId,
                 status=SipStatus.FAILURE,
                 timestamp=timestamp,
                 message=message,
             )
         else:
-            self.log.debug(f"SIP `{pid}' in progress", pid=pid)
-            return CheckResult(status=SipStatus.IN_PROGRESS, timestamp=datetime.now())
+            self.log.debug(f"{record_type} in progress", pid=pid)
+            return CheckResult(
+                fragment_id=record.Internal.FragmentId,
+                status=SipStatus.IN_PROGRESS,
+                timestamp=datetime.now(),
+            )
 
     def _sipin_records_to_poll(self) -> Iterator[SipinRecord]:
         self.log.debug(f"looking for SIPs in progress")
         return self.db_client.select_sips_in_progress()
 
-    def _get_link_to_monitoring(self, record: MamRecord) -> str:
+    def _get_link_to_monitoring(self, umid: str) -> str:
         base = self.config.mh_base_url
-        fragment = record.Internal.FragmentId
-        return f"{base}/monitoring/index.php?config=default&service=MediaHaven&view=Files&umid={fragment}"
+        return f"{base}/monitoring/index.php?config=default&service=MediaHaven&view=Files&umid={umid}"
+
+    def _get_ie_from_sip(self, sip: MamRecord) -> Optional[MamRecord]:
+        try:
+            umid = sip.Structural.Relations.Contains[0]
+            result = self.mam_client.records.get(umid)
+            self.log.debug(
+                f"Got IE contained in SIP",
+                sip=self._get_link_to_monitoring(sip.Internal.FragmentId),
+                ie=self._get_link_to_monitoring(umid),
+            )
+            return result
+        except:
+            self.log.warning(
+                f"Failed to get IE contained in SIP",
+                monitoring=self._get_link_to_monitoring(sip.Internal.FragmentId),
+            )
+            return None
 
     def _poll_pid(self, pid: str) -> Optional[CheckResult]:
-        check_result = None
         try:
-            query_result = self._query_record_by_pid(pid)
-            if not query_result:
-                self.log.debug(
-                    f"didn't find MAM record for PID `{pid}'",
-                    pid=pid,
-                )
+            sip = self._query_sip(pid)
+            if not sip:
+                self.log.debug(f"no SIP found for PID `{pid}'", pid=pid)
+                return None
+
+            result = self._check_record(sip, pid, RecordType.SIP)
+            if result.status == SipStatus.IN_PROGRESS:
+                return None
+            if result.status == SipStatus.FAILURE:
+                return result
+
+            ie = self._get_ie_from_sip(sip)
+            if ie:
+                return self._check_record(ie, pid, RecordType.IE)
             else:
-                record, record_type = query_result
-                self.log.debug(
-                    f"found {record_type.name} for PID `{pid}'",
-                    pid=pid,
-                    monitoring=self._get_link_to_monitoring(record),
+                message = f"Accepted SIP without IE found"
+                self.log.warning(message)
+                return CheckResult(
+                    fragment_id=sip.Internal.FragmentId,
+                    status=SipStatus.FAILURE,
+                    timestamp=datetime.now(),
+                    message=message,
                 )
-                check_result = self._check_record(record, pid, record_type)
+
         except Exception as e:
             self.log.exception(f"failed to poll for PID `{pid}': {e}", pid=pid)
-        finally:
-            return check_result
+
+        return None
 
     def _persist_status(self, record: SipinRecord, result: CheckResult) -> None:
         match result.status:
