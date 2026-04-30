@@ -84,8 +84,8 @@ class DbClient:
 
     def select_recent_failed_sips(self) -> Iterator[SipinRecord]:
         """
-        Query the sipin table and select all rows where the status is
-        `failed' and the created_at timestamp is less than 4 weeks old.
+        Query the sipin table and select all rows where the status is `failed' and the
+        created_at timestamp is newer than the (configurable) cutoff.
         """
         cutoff_timestamp = self._get_cutoff_timestamp()
         self.log.info(f"Looking for failed SIPs created after {cutoff_timestamp}")
@@ -95,7 +95,7 @@ class DbClient:
                 FROM {}
                 WHERE NULLIF(pid, '') IS NOT NULL
                     AND created_at > %(timestamp)s
-                    AND last_event_type IS DISTINCT FROM %(event_type)s
+                    AND last_event_type = %(event_type)s
                 ORDER BY pid, created_at DESC
             ) AS latest
             WHERE status = %(failure)s
