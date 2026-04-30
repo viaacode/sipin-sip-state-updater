@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 # Third-party
 from psycopg import sql
 from psycopg_pool import ConnectionPool
-from typing import Optional
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
@@ -125,7 +124,7 @@ class DbClient:
         correlation_id: str,
         event_type: str,
         event_timestamp: datetime,
-        failure_message: Optional[str],
+        failure_message: str | None,
     ) -> int:
         """Mark a record in the state database as failed during SIP ingest."""
         query = sql.SQL("""UPDATE {}
@@ -233,7 +232,7 @@ class DbClient:
         self,
         correlation_id: str,
         event_timestamp: datetime,
-        failure_message: Optional[str],
+        failure_message: str | None,
     ) -> int:
         """Mark a SIP as failed during MediaHaven ingest in the state database."""
         query = sql.SQL(

@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from app import Logger
     from app.services.db import DbClient
     from threading import Event
-    from typing import Any, Iterator, Optional, Self, Tuple
+    from typing import Any, Iterator, Self, Tuple
 
 
 SLEEP_POLL_SECONDS = 1
@@ -45,7 +45,7 @@ class CheckResult:
     fragment_id: str
     status: SipStatus
     timestamp: datetime
-    message: Optional[str] = None
+    message: str | None = None
 
 
 class MamPoller:
@@ -133,7 +133,7 @@ class MamPoller:
         pid: str,
         query: str,
         page: MediaHavenPageObjectJSON,
-    ) -> Optional[MamRecord]:
+    ) -> MamRecord | None:
         records = page.as_generator()
         count = cast(int, page.total_nr_of_results)
         if count == 1:
@@ -161,7 +161,7 @@ class MamPoller:
     def _get_name(self) -> str:
         return type(self).__name__
 
-    def _query_sip(self, pid: str) -> Optional[MamRecord]:
+    def _query_sip(self, pid: str) -> MamRecord | None:
         if not pid:
             return None
 
@@ -222,7 +222,7 @@ class MamPoller:
             return datetime.now()
 
     @staticmethod
-    def _get_failure_message(record: MamRecord) -> Optional[str]:
+    def _get_failure_message(record: MamRecord) -> str | None:
         """Get a failure message from a MediaHaven record."""
         try:
             rejections = record.Administrative.RecordRejections.Rejection
@@ -278,7 +278,7 @@ class MamPoller:
         base = self.config.mh_base_url
         return f"{base}/monitoring/index.php?config=default&service=MediaHaven&view=Files&umid={umid}"
 
-    def _get_ie_from_sip(self, sip: MamRecord) -> Optional[MamRecord]:
+    def _get_ie_from_sip(self, sip: MamRecord) -> MamRecord | None:
         try:
             umid = sip.Structural.Relations.Contains[0]
             result = self.mam_client.records.get(umid)
@@ -295,7 +295,7 @@ class MamPoller:
             )
             return None
 
-    def _poll_pid(self, pid: str) -> Optional[CheckResult]:
+    def _poll_pid(self, pid: str) -> CheckResult | None:
         try:
             sip = self._query_sip(pid)
             if not sip:
