@@ -41,7 +41,7 @@ class UpdaterService:
             log=self.log,
             db_client=self.db_client,
         )
-        # poll in progress SIPs
+        # polls in progress SIPs
         self.mam_poller = MamPoller.from_config_parser(
             config_parser,
             log=self.log,
@@ -49,7 +49,7 @@ class UpdaterService:
             shutdown=self.shutdown,
             polling_interval_hours=float(self.config["mediahaven"]["polling_interval"]),
         )
-        # poll failures
+        # polls failures
         self.mam_failure_poller = MamFailuresPoller.from_config_parser(
             config_parser,
             log=self.log,

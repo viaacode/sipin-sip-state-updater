@@ -87,7 +87,6 @@ class DbClient:
         created_at timestamp is newer than the (configurable) cutoff.
         """
         cutoff_timestamp = self._get_cutoff_timestamp()
-        self.log.info(f"Looking for failed SIPs created after {cutoff_timestamp}")
         query = sql.SQL("""SELECT pid, correlation_id
             FROM (
                 SELECT DISTINCT ON (pid) pid, correlation_id, status
