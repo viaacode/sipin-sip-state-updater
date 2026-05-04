@@ -134,29 +134,38 @@ class MamPoller:
         query: str,
         page: MediaHavenPageObjectJSON,
     ) -> MamRecord | None:
-        records = page.as_generator()
-        count = cast(int, page.total_nr_of_results)
-        if count == 1:
-            record = next(records)
-            return cast(MamRecord, record)
-        elif count > 1:
-            record, *deleted_records = sorted(
-                records,
-                key=lambda record: record.Administrative.ArchiveDate,
-                reverse=True,
-            )
-            if any(
-                record.Administrative.DeleteStatus == "NotDeleted"
-                for record in deleted_records
-            ):
-                message = f"found {count} records for PID `{pid}' and fewer than n-1 records were deleted"
-                self.log.warning(message, pid=pid, query=query)
-            else:
-                message = f"found {count} records for PID `{pid}' but at least n-1 records were deleted"
-                self.log.info(message, pid=pid, query=query)
-            return cast(MamRecord, record)
-        else:
+        """
+        When querying for a SIP, we want only a single record.  It's possible multiple
+        records are returned.  Preferably, we return the newest not-deleted record.
+        """
+        records = sorted(
+            page.as_generator(),
+            key=lambda r: r.Administrative.ArchiveDate,
+            reverse=True,
+        )
+        if not records:
             return None
+
+        if len(records) == 1:
+            return records[0]
+
+        # multiple records were found
+        not_deleted_records = [
+            r for r in records if r.Administrative.DeleteStatus == "NotDeleted"
+        ]
+        if not not_deleted_records:
+            message = f"found {len(records)} records; all deleted"
+            self.log.warning(message, pid=pid, query=query)
+            return records[0]
+
+        if len(not_deleted_records) == 1:
+            message = f"found {len(records)} records; only 1 not deleted"
+            self.log.debug(message, pid=pid, query=query)
+        elif len(not_deleted_records) > 1:
+            message = f"found {len(records)} records; {len(not_deleted_records)} of which not deleted"
+            self.log.warning(message, pid=pid, query=query)
+
+        return not_deleted_records[0]
 
     def _get_name(self) -> str:
         return type(self).__name__
