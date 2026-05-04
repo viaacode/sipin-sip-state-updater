@@ -45,7 +45,7 @@ class CheckResult:
     fragment_id: str
     status: SipStatus
     timestamp: datetime
-    message: str | None = None
+    failure_message: str | None = None
 
 
 class MamPoller:
@@ -256,7 +256,7 @@ class MamPoller:
                 fragment_id=record.Internal.FragmentId,
                 status=SipStatus.FAILURE,
                 timestamp=timestamp,
-                message=message,
+                failure_message=message,
             )
         else:
             return CheckResult(
@@ -296,7 +296,7 @@ class MamPoller:
                     fragment_id=sip.Internal.FragmentId,
                     status=SipStatus.FAILURE,
                     timestamp=datetime.now(),
-                    message=f"Accepted SIP without IE found",
+                    failure_message=f"Accepted SIP without IE found",
                 )
 
         except Exception as e:
@@ -317,7 +317,7 @@ class MamPoller:
                 self.db_client.update_sip_mam_failure(
                     correlation_id=record.correlation_id,
                     event_timestamp=result.timestamp,
-                    failure_message=result.message,
+                    failure_message=result.failure_message,
                 )
 
     def _poll_mam(self) -> None:
