@@ -25,7 +25,9 @@ if TYPE_CHECKING:
     from threading import Event
     from typing import Any, Iterator, Self
 
-    from mediahaven.resources.base_resource import MediaHavenPageObjectJSON
+    from mediahaven.resources.base_resource import (
+        MediaHavenPageObjectJSON,
+    )
 
     from app import Logger
     from app.services.db import DbClient
@@ -182,7 +184,7 @@ class MamPoller:
             q=query,
         )
         return self._get_record_from_page_object(
-            pid=pid, query=query, page=search_result
+            pid=pid, query=query, page=cast("MediaHavenPageObjectJSON", search_result)
         )
 
     @staticmethod
