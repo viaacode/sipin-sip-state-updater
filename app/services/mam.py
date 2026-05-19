@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, cast
 from mediahaven import MediaHaven
 from mediahaven.mediahaven import AcceptFormat
 from mediahaven.oauth2 import ROPCGrant
-from mediahaven.resources.base_resource import MediaHavenPageObjectJSON
 from viaa.configuration import ConfigParser
 
 # local imports
@@ -24,7 +23,9 @@ from app.config import MediaHavenConfig
 
 if TYPE_CHECKING:
     from threading import Event
-    from typing import Any, Iterator, Self, Tuple
+    from typing import Any, Iterator, Self
+
+    from mediahaven.resources.base_resource import MediaHavenPageObjectJSON
 
     from app import Logger
     from app.services.db import DbClient
