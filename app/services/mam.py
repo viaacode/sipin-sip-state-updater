@@ -1,10 +1,15 @@
 # future imports
 from __future__ import annotations
 
+import time
+
 # stdlib imports
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum, auto
+
+# type imports
+from typing import TYPE_CHECKING, cast
 
 # meemoo imports
 from mediahaven import MediaHaven
@@ -13,20 +18,16 @@ from mediahaven.oauth2 import ROPCGrant
 from mediahaven.resources.base_resource import MediaHavenPageObjectJSON
 from viaa.configuration import ConfigParser
 
-import time
-
 # local imports
-from app import MamRecord, SipStatus, SipinRecord
+from app import MamRecord, SipinRecord, SipStatus
 from app.config import MediaHavenConfig
 
-# type imports
-from typing import TYPE_CHECKING, cast
-
 if TYPE_CHECKING:
-    from app import Logger
-    from app.services.db import DbClient
     from threading import Event
     from typing import Any, Iterator, Self, Tuple
+
+    from app import Logger
+    from app.services.db import DbClient
 
 
 SLEEP_POLL_SECONDS = 1
@@ -266,7 +267,7 @@ class MamPoller:
             )
 
     def _sipin_records_to_poll(self) -> Iterator[SipinRecord]:
-        self.log.debug(f"looking for SIPs in progress")
+        self.log.debug("looking for SIPs in progress")
         return self.db_client.select_sips_in_progress()
 
     def _get_ie_from_sip(self, sip: MamRecord) -> MamRecord | None:
@@ -296,7 +297,7 @@ class MamPoller:
                     fragment_id=sip.Internal.FragmentId,
                     status=SipStatus.FAILURE,
                     timestamp=datetime.now(),
-                    failure_message=f"Accepted SIP without IE found",
+                    failure_message="Accepted SIP without IE found",
                 )
 
         except Exception as e:
@@ -361,5 +362,5 @@ class MamFailuresPoller(MamPoller):
     """MamFailuresPoller is responsible for polling MediaHaven for failed SIPs."""
 
     def _sipin_records_to_poll(self) -> Iterator[SipinRecord]:
-        self.log.debug(f"looking for recent failed SIPs")
+        self.log.debug("looking for recent failed SIPs")
         return self.db_client.select_recent_failed_sips()
