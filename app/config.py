@@ -48,7 +48,9 @@ class MediaHavenConfig:
                 password=mediahaven["password"],
                 mh_base_url=mediahaven["url"],
                 polling_interval=float(mediahaven["polling_interval"]),
-                polling_interval_failures=float(mediahaven["polling_interval_failures"]),
+                polling_interval_failures=float(
+                    mediahaven["polling_interval_failures"]
+                ),
             )
         except KeyError as e:
             raise ConfigError(

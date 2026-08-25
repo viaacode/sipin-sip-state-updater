@@ -41,21 +41,23 @@ class UpdaterService:
             log=self.log,
             db_client=self.db_client,
         )
-        # regularly poll in progress SIPs
+        # polls in progress SIPs
         self.mam_poller = MamPoller.from_config_parser(
             config_parser,
             log=self.log,
             db_client=self.db_client,
             shutdown=self.shutdown,
-            polling_interval_hours=float(self.config["mediahaven"]["polling_interval"])
+            polling_interval_hours=float(self.config["mediahaven"]["polling_interval"]),
         )
-        # poll failures
+        # polls failures
         self.mam_failure_poller = MamFailuresPoller.from_config_parser(
             config_parser,
             log=self.log,
             db_client=self.db_client,
             shutdown=self.shutdown,
-            polling_interval_hours=float(self.config["mediahaven"]["polling_interval_failures"])
+            polling_interval_hours=float(
+                self.config["mediahaven"]["polling_interval_failures"]
+            ),
         )
 
     def start(self) -> None:
@@ -76,11 +78,8 @@ class UpdaterService:
             while not self.shutdown.is_set():
                 self.shutdown.wait(1)
         finally:
-            try:
-                self.event_listener.stop()
-                self.db_client.close()
-            except Exception:
-                pass
+            self.event_listener.stop()
+            self.db_client.close()
 
     def stop(self, *_: Any) -> None:
         """Stop the service"""
@@ -116,7 +115,9 @@ class EventListener:
         Args:
             event (Event): The incoming event to process.
         """
-        self.log.debug(f"Start handling of event with correlation ID: {event.correlation_id}.")
+        self.log.debug(
+            f"Start handling of event with correlation ID: {event.correlation_id}."
+        )
 
         # Check if valid
         if not self._is_event_successful(event):
